@@ -63,12 +63,7 @@ pub struct ImageElem {
     /// #image(bytes(changed))
     /// ```
     #[required]
-    #[parse(
-        let source = args.expect::<Spanned<DataSource>>("source")?;
-        let data = source.load(engine.world)?;
-        Derived::new(source.v, data.bytes)
-    )]
-    pub source: Derived<DataSource, Bytes>,
+    pub source: DataSource,
 
     /// The image's format.
     ///
@@ -194,7 +189,7 @@ impl ImageElem {
         scaling: Option<Smart<ImageScaling>>,
     ) -> StrResult<Content> {
         let bytes = data.into_bytes();
-        let source = Derived::new(DataSource::Bytes(bytes.clone()), bytes);
+        let source = DataSource::Bytes(bytes.clone());
         let mut elem = ImageElem::new(source);
         if let Some(format) = format {
             elem.push_format(format);

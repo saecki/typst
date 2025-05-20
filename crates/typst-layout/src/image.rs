@@ -27,7 +27,7 @@ pub fn layout_image(
 
     // Take the format that was explicitly defined, or parse the extension,
     // or try to detect the format.
-    let Derived { source, derived: data } = &elem.source;
+    elem.source.loa
     let format = match elem.format(styles) {
         Smart::Custom(v) => v,
         Smart::Auto => determine_format(source, data).at(span)?,
