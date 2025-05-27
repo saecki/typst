@@ -6,6 +6,7 @@ use crate::foundations::{
     elem, Content, NativeElement, Packed, Show, Smart, StyleChain, TargetElem,
 };
 use crate::html::{attr, tag, HtmlElem};
+use crate::introspection::Locatable;
 use crate::layout::{Abs, Corners, Length, Rel, Sides};
 use crate::text::{BottomEdge, BottomEdgeMetric, TextElem, TopEdge, TopEdgeMetric};
 use crate::visualize::{Color, FixedStroke, Paint, Stroke};
@@ -16,7 +17,7 @@ use crate::visualize::{Color, FixedStroke, Paint, Stroke};
 /// ```example
 /// This is #underline[important].
 /// ```
-#[elem(Show)]
+#[elem(Locatable, Show)]
 pub struct UnderlineElem {
     /// How to [stroke] the line.
     ///
@@ -112,7 +113,7 @@ impl Show for Packed<UnderlineElem> {
 /// ```example
 /// #overline[A line over text.]
 /// ```
-#[elem(Show)]
+#[elem(Locatable, Show)]
 pub struct OverlineElem {
     /// How to [stroke] the line.
     ///
@@ -211,7 +212,7 @@ impl Show for Packed<OverlineElem> {
 /// ```example
 /// This is #strike[not] relevant.
 /// ```
-#[elem(title = "Strikethrough", Show)]
+#[elem(title = "Strikethrough", Locatable, Show)]
 pub struct StrikeElem {
     /// How to [stroke] the line.
     ///
@@ -292,7 +293,7 @@ impl Show for Packed<StrikeElem> {
 /// ```example
 /// This is #highlight[important].
 /// ```
-#[elem(Show)]
+#[elem(Locatable, Show)]
 pub struct HighlightElem {
     /// The color to highlight the text with.
     ///

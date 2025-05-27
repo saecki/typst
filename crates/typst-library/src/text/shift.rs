@@ -4,6 +4,7 @@ use crate::foundations::{
     elem, Content, NativeElement, Packed, Show, Smart, StyleChain, TargetElem,
 };
 use crate::html::{tag, HtmlElem};
+use crate::introspection::Locatable;
 use crate::layout::{Em, Length};
 use crate::text::{FontMetrics, TextElem, TextSize};
 use ttf_parser::Tag;
@@ -17,7 +18,7 @@ use typst_library::text::ScriptMetrics;
 /// ```example
 /// Revenue#sub[yearly]
 /// ```
-#[elem(title = "Subscript", Show)]
+#[elem(title = "Subscript", Locatable, Show)]
 pub struct SubElem {
     /// Whether to create artificial subscripts by lowering and scaling down
     /// regular glyphs.
@@ -95,7 +96,7 @@ impl Show for Packed<SubElem> {
 /// ```example
 /// 1#super[st] try!
 /// ```
-#[elem(title = "Superscript", Show)]
+#[elem(title = "Superscript", Locatable, Show)]
 pub struct SuperElem {
     /// Whether to create artificial superscripts by raising and scaling down
     /// regular glyphs.
