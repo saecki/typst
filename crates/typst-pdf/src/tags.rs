@@ -4,7 +4,8 @@ use std::collections::HashMap;
 use krilla::page::Page;
 use krilla::surface::Surface;
 use krilla::tagging::{
-    ArtifactType, ContentTag, Identifier, Node, Tag, TagGroup, TagTree,
+    ArtifactType, ContentTag, Identifier, Node, Tag, TagBuilder, TagGroup, TagKind,
+    TagTree,
 };
 use typst_library::foundations::{Content, LinkMarker, StyleChain};
 use typst_library::introspection::Location;
@@ -100,25 +101,22 @@ impl Tags {
     }
 
     pub(crate) fn build_tree(&mut self) -> TagTree {
-        let mut tree = TagTree::new();
-        let nodes = std::mem::take(&mut self.tree);
-        // PERF: collect into vec and construct TagTree directly from tag nodes.
-        for node in nodes.into_iter().map(|node| self.resolve_node(node)) {
-            tree.push(node);
-        }
-        tree
+        let children = std::mem::take(&mut self.tree)
+            .into_iter()
+            .map(|node| self.resolve_node(node))
+            .collect::<Vec<_>>();
+        TagTree::from(children)
     }
 
     /// Resolves [`Placeholder`] nodes.
     fn resolve_node(&mut self, node: TagNode) -> Node {
         match node {
             TagNode::Group(tag, nodes) => {
-                let mut group = TagGroup::new(tag);
-                // PERF: collect into vec and construct TagTree directly from tag nodes.
-                for node in nodes.into_iter().map(|node| self.resolve_node(node)) {
-                    group.push(node);
-                }
-                Node::Group(group)
+                let children = nodes
+                    .into_iter()
+                    .map(|node| self.resolve_node(node))
+                    .collect::<Vec<_>>();
+                Node::Group(TagGroup::with_children(tag, children))
             }
             TagNode::Leaf(identifier) => Node::Leaf(identifier),
             TagNode::Placeholder(placeholder) => self.take_placeholder(placeholder),
@@ -196,31 +194,31 @@ pub(crate) fn handle_start(
 
     let mut link_id = None;
     let mut wrappers = Vec::new();
-    let tag = if let Some(pdf_tag) = elem.to_packed::<PdfTagElem>() {
+    let tag: Tag = if let Some(pdf_tag) = elem.to_packed::<PdfTagElem>() {
         let kind = pdf_tag.kind(StyleChain::default());
         match kind {
-            PdfTagKind::Part => Tag::Part,
+            PdfTagKind::Part => TagKind::Part.into(),
             _ => todo!(),
         }
     } else if let Some(heading) = elem.to_packed::<HeadingElem>() {
         let level = heading.level();
         let name = heading.body.plain_text().to_string();
         match level.get() {
-            1 => Tag::H1(Some(name)),
-            2 => Tag::H2(Some(name)),
-            3 => Tag::H3(Some(name)),
-            4 => Tag::H4(Some(name)),
-            5 => Tag::H5(Some(name)),
+            1 => TagKind::H1(Some(name)).into(),
+            2 => TagKind::H2(Some(name)).into(),
+            3 => TagKind::H3(Some(name)).into(),
+            4 => TagKind::H4(Some(name)).into(),
+            5 => TagKind::H5(Some(name)).into(),
             // TODO: when targeting PDF 2.0 headings `> 6` are supported
-            _ => Tag::H6(Some(name)),
+            _ => TagKind::H6(Some(name)).into(),
         }
     } else if let Some(_) = elem.to_packed::<OutlineElem>() {
-        Tag::TOC
+        TagKind::TOC.into()
     } else if let Some(_) = elem.to_packed::<OutlineEntry>() {
-        Tag::TOCI
+        TagKind::TOCI.into()
     } else if let Some(_) = elem.to_packed::<FigureElem>() {
         let alt = None; // TODO
-        Tag::Figure(alt)
+        TagKind::Figure.with_alt_text(alt)
     } else if let Some(image) = elem.to_packed::<ImageElem>() {
         let alt = image.alt(StyleChain::default()).map(|s| s.to_string());
 
@@ -228,26 +226,26 @@ pub(crate) fn handle_start(
         let id = surface.start_tagged(ContentTag::Other);
         let mut node = TagNode::Leaf(id);
 
-        if let Some(Tag::Figure(alt_text)) = gc.tags.parent().0 {
-            // HACK: set alt text of outer figure tag, if the contained image
-            // has alt text specified
-            if alt_text.is_none() {
-                *alt_text = alt;
+        if let Some(parent) = gc.tags.parent().0 {
+            if parent.kind == TagKind::Figure && parent.alt_text.is_none() {
+                // HACK: set alt text of outer figure tag, if the contained image
+                // has alt text specified
+                parent.alt_text = alt;
             }
         } else {
-            node = TagNode::Group(Tag::Figure(alt), vec![node]);
+            node = TagNode::Group(TagKind::Figure.with_alt_text(alt), vec![node]);
         }
         gc.tags.push(node);
 
         return;
     } else if let Some(_) = elem.to_packed::<FigureCaption>() {
-        Tag::Caption
+        TagKind::Caption.into()
     } else if let Some(link) = elem.to_packed::<LinkMarker>() {
         link_id = Some(gc.tags.next_link_id());
         if let Destination::Position(_) | Destination::Location(_) = link.dest {
-            wrappers.push(Tag::Reference);
+            wrappers.push(TagKind::Reference.into());
         }
-        Tag::Link
+        TagKind::Link.into()
     } else {
         return;
     };

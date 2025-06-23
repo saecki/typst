@@ -588,6 +588,16 @@ fn convert_error(
             "{prefix} missing document date";
             hint: "set the date of the document"
         ),
+        ValidationError::DuplicateTagId(_id, loc) => {
+            // TODO: display the id and better error message
+            let span = to_span(*loc);
+            error!(span, "{prefix} duplicate tag id")
+        }
+        ValidationError::UnknownHeaderTagId(_id, loc) => {
+            // TODO: display the id and better error message
+            let span = to_span(*loc);
+            error!(span, "{prefix} unknown header tag id")
+        }
     }
 }
 
