@@ -1,17 +1,18 @@
 use std::cell::OnceCell;
 use std::collections::HashMap;
 
+use ecow::EcoString;
 use krilla::page::Page;
 use krilla::surface::Surface;
 use krilla::tagging::{
-    ArtifactType, ContentTag, Identifier, Node, Tag, TagBuilder, TagGroup, TagKind,
-    TagTree,
+    ArtifactType, ContentTag, Identifier, Node, TableCellSpan, TableDataCell,
+    TableHeaderCell, TableHeaderScope, Tag, TagBuilder, TagGroup, TagKind, TagTree,
 };
-use typst_library::foundations::{Content, LinkMarker, StyleChain};
+use typst_library::foundations::{Content, LinkMarker, Packed, StyleChain};
 use typst_library::introspection::Location;
 use typst_library::model::{
     Destination, FigureCaption, FigureElem, HeadingElem, Outlinable, OutlineElem,
-    OutlineEntry,
+    OutlineEntry, TableCell, TableElem, TableHLine, TableVLine,
 };
 use typst_library::pdf::{ArtifactElem, ArtifactKind, PdfTagElem, PdfTagKind};
 use typst_library::visualize::ImageElem;
@@ -33,12 +34,69 @@ pub(crate) struct Tags {
 
 pub(crate) struct StackEntry {
     pub(crate) loc: Location,
-    pub(crate) link_id: Option<LinkId>,
-    /// A list of tags that are wrapped around this tag when it is inserted into
-    /// the tag tree.
-    pub(crate) wrappers: Vec<Tag>,
-    pub(crate) tag: Tag,
+    pub(crate) kind: StackEntryKind,
     pub(crate) nodes: Vec<TagNode>,
+}
+
+pub(crate) enum StackEntryKind {
+    Standard(Tag),
+    Link(LinkId, Packed<LinkMarker>),
+    Table(TableCtx),
+    TableCell(Packed<TableCell>),
+}
+
+pub(crate) struct TableCtx {
+    table: Packed<TableElem>,
+    rows: Vec<Vec<Option<(Packed<TableCell>, Tag, Vec<TagNode>)>>>,
+}
+
+impl TableCtx {
+    fn insert(&mut self, cell: Packed<TableCell>, nodes: Vec<TagNode>) {
+        let x = cell.x(StyleChain::default()).unwrap_or_else(|| unreachable!());
+        let y = cell.y(StyleChain::default()).unwrap_or_else(|| unreachable!());
+        let rowspan = cell.rowspan(StyleChain::default()).get();
+        let colspan = cell.colspan(StyleChain::default()).get();
+
+        // TODO: possibly set internal field on TableCell when resolving
+        // the cell grid.
+        let is_header = false;
+        let span = TableCellSpan { rows: rowspan as i32, cols: colspan as i32 };
+        let tag = if is_header {
+            let scope = TableHeaderScope::Column; // TODO
+            TagKind::TH(TableHeaderCell::new(scope).with_span(span))
+        } else {
+            TagKind::TD(TableDataCell::new().with_span(span))
+        };
+
+        let required_height = y + rowspan;
+        if self.rows.len() < required_height {
+            self.rows.resize_with(required_height, Vec::new);
+        }
+
+        let required_width = x + colspan;
+        let row = &mut self.rows[y];
+        if row.len() < required_width {
+            row.resize_with(required_width, || None);
+        }
+
+        row[x] = Some((cell, tag.into(), nodes));
+    }
+
+    fn build_table(self, mut nodes: Vec<TagNode>) -> Vec<TagNode> {
+        // Table layouting ensures that there are no overlapping cells, and that
+        // any gaps left by the user are filled with empty cells.
+        for row in self.rows.into_iter() {
+            let mut row_nodes = Vec::new();
+            for (_, tag, nodes) in row.into_iter().flatten() {
+                row_nodes.push(TagNode::Group(tag, nodes));
+            }
+
+            // TODO: generate `THead`, `TBody`, and `TFoot`
+            nodes.push(TagNode::Group(TagKind::TR.into(), row_nodes));
+        }
+
+        nodes
+    }
 }
 
 pub(crate) enum TagNode {
@@ -86,11 +144,15 @@ impl Tags {
             .expect("initialized placeholder node")
     }
 
+    pub(crate) fn is_root(&self) -> bool {
+        self.stack.is_empty()
+    }
+
     /// Returns the current parent's list of children and the structure type ([Tag]).
     /// In case of the document root the structure type will be `None`.
-    pub(crate) fn parent(&mut self) -> (Option<&mut Tag>, &mut Vec<TagNode>) {
+    pub(crate) fn parent(&mut self) -> (Option<&mut StackEntryKind>, &mut Vec<TagNode>) {
         if let Some(entry) = self.stack.last_mut() {
-            (Some(&mut entry.tag), &mut entry.nodes)
+            (Some(&mut entry.kind), &mut entry.nodes)
         } else {
             (None, &mut self.tree)
         }
@@ -123,7 +185,7 @@ impl Tags {
         }
     }
 
-    fn context_supports(&self, _tag: &Tag) -> bool {
+    fn context_supports(&self, _tag: &StackEntryKind) -> bool {
         // TODO: generate using: https://pdfa.org/resource/iso-ts-32005-hierarchical-inclusion-rules/
         true
     }
@@ -138,8 +200,8 @@ impl Tags {
 /// at the end of the last page.
 pub(crate) fn restart_open(gc: &mut GlobalContext, surface: &mut Surface) {
     // TODO: somehow avoid empty marked-content sequences
-    if let Some((_, kind)) = gc.tags.in_artifact {
-        start_artifact(gc, surface, kind);
+    if let Some((loc, kind)) = gc.tags.in_artifact {
+        start_artifact(gc, surface, loc, kind);
     } else if let Some(entry) = gc.tags.stack.last_mut() {
         let id = surface.start_tagged(ContentTag::Other);
         entry.nodes.push(TagNode::Leaf(id));
@@ -183,17 +245,12 @@ pub(crate) fn handle_start(
     let loc = elem.location().unwrap();
 
     if let Some(artifact) = elem.to_packed::<ArtifactElem>() {
-        if !gc.tags.stack.is_empty() {
-            surface.end_tagged();
-        }
+        end_open(gc, surface);
         let kind = artifact.kind(StyleChain::default());
-        start_artifact(gc, surface, kind);
-        gc.tags.in_artifact = Some((loc, kind));
+        start_artifact(gc, surface, loc, kind);
         return;
     }
 
-    let mut link_id = None;
-    let mut wrappers = Vec::new();
     let tag: Tag = if let Some(pdf_tag) = elem.to_packed::<PdfTagElem>() {
         let kind = pdf_tag.kind(StyleChain::default());
         match kind {
@@ -226,11 +283,13 @@ pub(crate) fn handle_start(
         let id = surface.start_tagged(ContentTag::Other);
         let mut node = TagNode::Leaf(id);
 
-        if let Some(parent) = gc.tags.parent().0 {
+        if let Some(StackEntryKind::Standard(parent)) = gc.tags.parent().0 {
             if parent.kind == TagKind::Figure && parent.alt_text.is_none() {
                 // HACK: set alt text of outer figure tag, if the contained image
                 // has alt text specified
                 parent.alt_text = alt;
+            } else {
+                node = TagNode::Group(TagKind::Figure.with_alt_text(alt), vec![node]);
             }
         } else {
             node = TagNode::Group(TagKind::Figure.with_alt_text(alt), vec![node]);
@@ -241,29 +300,47 @@ pub(crate) fn handle_start(
     } else if let Some(_) = elem.to_packed::<FigureCaption>() {
         TagKind::Caption.into()
     } else if let Some(link) = elem.to_packed::<LinkMarker>() {
-        link_id = Some(gc.tags.next_link_id());
-        if let Destination::Position(_) | Destination::Location(_) = link.dest {
-            wrappers.push(TagKind::Reference.into());
-        }
-        TagKind::Link.into()
+        let link_id = gc.tags.next_link_id();
+        push_stack(gc, surface, loc, StackEntryKind::Link(link_id, link.clone()));
+        return;
+    } else if let Some(table) = elem.to_packed::<TableElem>() {
+        let ctx = TableCtx { table: table.clone(), rows: Vec::new() };
+        push_stack(gc, surface, loc, StackEntryKind::Table(ctx));
+        return;
+    } else if let Some(cell) = elem.to_packed::<TableCell>() {
+        push_stack(gc, surface, loc, StackEntryKind::TableCell(cell.clone()));
+        return;
+    } else if let Some(_) = elem.to_packed::<TableHLine>() {
+        end_open(gc, surface);
+        start_artifact(gc, surface, loc, ArtifactKind::Other);
+        return;
+    } else if let Some(_) = elem.to_packed::<TableVLine>() {
+        end_open(gc, surface);
+        start_artifact(gc, surface, loc, ArtifactKind::Other);
+        return;
     } else {
         return;
     };
 
-    if !gc.tags.context_supports(&tag) {
+    push_stack(gc, surface, loc, StackEntryKind::Standard(tag));
+}
+
+fn push_stack(
+    gc: &mut GlobalContext,
+    surface: &mut Surface,
+    loc: Location,
+    kind: StackEntryKind,
+) {
+    if !gc.tags.context_supports(&kind) {
         // TODO: error or warning?
     }
 
     // close previous marked-content and open a nested tag.
     end_open(gc, surface);
     let id = surface.start_tagged(krilla::tagging::ContentTag::Other);
-    gc.tags.stack.push(StackEntry {
-        loc,
-        link_id,
-        wrappers,
-        tag,
-        nodes: vec![TagNode::Leaf(id)],
-    });
+    gc.tags
+        .stack
+        .push(StackEntry { loc, kind, nodes: vec![TagNode::Leaf(id)] });
 }
 
 pub(crate) fn handle_end(gc: &mut GlobalContext, surface: &mut Surface, loc: Location) {
@@ -285,24 +362,56 @@ pub(crate) fn handle_end(gc: &mut GlobalContext, surface: &mut Surface, loc: Loc
 
     surface.end_tagged();
 
-    let (parent_tag, parent_nodes) = gc.tags.parent();
-    let mut node = TagNode::Group(entry.tag, entry.nodes);
-    for tag in entry.wrappers {
-        node = TagNode::Group(tag, vec![node]);
-    }
-    parent_nodes.push(node);
-    if parent_tag.is_some() {
+    let node = match entry.kind {
+        StackEntryKind::Standard(tag) => TagNode::Group(tag, entry.nodes),
+        StackEntryKind::Link(_, link) => {
+            let alt = link.alt.as_ref().map(EcoString::to_string);
+            let tag = TagKind::Link.with_alt_text(alt);
+            let mut node = TagNode::Group(tag, entry.nodes);
+            // Wrap link in reference tag, if it's not a url.
+            if let Destination::Position(_) | Destination::Location(_) = link.dest {
+                node = TagNode::Group(TagKind::Reference.into(), vec![node]);
+            }
+            node
+        }
+        StackEntryKind::Table(ctx) => {
+            let summary = ctx.table.summary(StyleChain::default()).map(EcoString::into);
+            let nodes = ctx.build_table(entry.nodes);
+            TagNode::Group(TagKind::Table(summary).into(), nodes)
+        }
+        StackEntryKind::TableCell(cell) => {
+            let parent = gc.tags.stack.last_mut().expect("table");
+            let StackEntryKind::Table(table_ctx) = &mut parent.kind else {
+                unreachable!("expected table")
+            };
+
+            table_ctx.insert(cell, entry.nodes);
+
+            // TODO: somehow avoid empty marked-content sequences
+            let id = surface.start_tagged(ContentTag::Other);
+            gc.tags.push(TagNode::Leaf(id));
+            return;
+        }
+    };
+
+    gc.tags.push(node);
+    if !gc.tags.is_root() {
         // TODO: somehow avoid empty marked-content sequences
         let id = surface.start_tagged(ContentTag::Other);
-        parent_nodes.push(TagNode::Leaf(id));
+        gc.tags.push(TagNode::Leaf(id));
     }
 }
 
-fn start_artifact(gc: &mut GlobalContext, surface: &mut Surface, kind: ArtifactKind) {
+fn start_artifact(
+    gc: &mut GlobalContext,
+    surface: &mut Surface,
+    loc: Location,
+    kind: ArtifactKind,
+) {
     let ty = artifact_type(kind);
     let id = surface.start_tagged(ContentTag::Artifact(ty));
-
     gc.tags.push(TagNode::Leaf(id));
+    gc.tags.in_artifact = Some((loc, kind));
 }
 
 fn artifact_type(kind: ArtifactKind) -> ArtifactType {

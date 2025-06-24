@@ -1,6 +1,7 @@
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Arc;
 
+use ecow::EcoString;
 use typst_utils::NonZeroExt;
 
 use crate::diag::{bail, HintedStrResult, HintedString, SourceResult};
@@ -236,6 +237,9 @@ pub struct TableElem {
     #[fold]
     #[default(Celled::Value(Sides::splat(Some(Abs::pt(5.0).into()))))]
     pub inset: Celled<Sides<Option<Rel<Length>>>>,
+
+    // TODO: docs
+    pub summary: Option<EcoString>,
 
     /// The contents of the table cells, plus any extra table lines specified
     /// with the [`table.hline`]($table.hline) and
