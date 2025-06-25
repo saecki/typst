@@ -39,17 +39,14 @@ pub fn convert(
     typst_document: &PagedDocument,
     options: &PdfOptions,
 ) -> SourceResult<Vec<u8>> {
-    // HACK
-    let config = Configuration::new_with_validator(Validator::UA1);
     let settings = SerializeSettings {
-        compress_content_streams: false, // true,
+        compress_content_streams: true,
         no_device_cs: true,
-        ascii_compatible: true, // false,
+        ascii_compatible: false,
         xmp_metadata: true,
         cmyk_profile: None,
-        configuration: config, // options.standards.config,
-        // TODO: allow opting out of tagging PDFs
-        enable_tagging: true,
+        configuration: options.standards.config,
+        enable_tagging: !options.disable_tags,
         render_svg_glyph_fn: render_svg_glyph,
     };
 
