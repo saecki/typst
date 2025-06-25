@@ -192,10 +192,11 @@ pub enum TableHeaderScope {
 /// TODO: maybe generalize this and use it to mark html elements with `aria-hidden="true"`?
 #[elem(Locatable, Show)]
 pub struct ArtifactElem {
+    /// The artifact kind.
     #[default(ArtifactKind::Other)]
     pub kind: ArtifactKind,
 
-    /// The content to underline.
+    /// The content that is an artifact.
     #[required]
     pub body: Content,
 }

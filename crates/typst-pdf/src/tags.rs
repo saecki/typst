@@ -325,9 +325,8 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) {
             .and_then(StackEntryKind::as_standard_mut)
             .filter(|tag| tag.kind == TagKind::Figure);
         if let Some(figure_tag) = figure_tag {
+            // Set alt text of outer figure tag, if not present.
             if figure_tag.alt_text.is_none() {
-                // HACK: set alt text of outer figure tag, if the contained image
-                // has alt text specified
                 figure_tag.alt_text = alt;
             }
             return;
