@@ -4,6 +4,7 @@ use std::sync::{Arc, OnceLock};
 use image::{DynamicImage, EncodableLayout, GenericImageView, Rgba};
 use krilla::image::{BitsPerComponent, CustomImage, ImageColorspace};
 use krilla::surface::Surface;
+use krilla::tagging::SpanTag;
 use krilla_svg::{SurfaceExt, SvgSettings};
 use typst_library::diag::{bail, SourceResult};
 use typst_library::foundations::Smart;
@@ -33,7 +34,8 @@ pub(crate) fn handle_image(
 
     gc.image_spans.insert(span);
 
-    let mut handle = tags::start_marked(gc, surface);
+    let mut handle =
+        tags::start_span(gc, surface, SpanTag::empty().with_alt_text(image.alt()));
     let surface = handle.surface();
     match image.kind() {
         ImageKind::Raster(raster) => {

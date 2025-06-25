@@ -5,7 +5,7 @@ use ecow::EcoString;
 use krilla::page::Page;
 use krilla::surface::Surface;
 use krilla::tagging::{
-    ArtifactType, ContentTag, Identifier, Node, TableCellSpan, TableDataCell,
+    ArtifactType, ContentTag, Identifier, Node, SpanTag, TableCellSpan, TableDataCell,
     TableHeaderCell, TableHeaderScope, Tag, TagBuilder, TagGroup, TagKind, TagTree,
 };
 use typst_library::foundations::{Content, LinkMarker, Packed, StyleChain};
@@ -156,16 +156,16 @@ impl Tags {
 
     /// Returns the current parent's list of children and the structure type ([Tag]).
     /// In case of the document root the structure type will be `None`.
-    pub(crate) fn parent(&mut self) -> (Option<&mut StackEntryKind>, &mut Vec<TagNode>) {
-        if let Some(entry) = self.stack.last_mut() {
-            (Some(&mut entry.kind), &mut entry.nodes)
-        } else {
-            (None, &mut self.tree)
-        }
+    pub(crate) fn parent(&mut self) -> Option<&mut StackEntryKind> {
+        self.stack.last_mut().map(|e| &mut e.kind)
     }
 
     pub(crate) fn push(&mut self, node: TagNode) {
-        self.parent().1.push(node);
+        if let Some(entry) = self.stack.last_mut() {
+            entry.nodes.push(node);
+        } else {
+            self.tree.push(node);
+        }
     }
 
     pub(crate) fn build_tree(&mut self) -> TagTree {
@@ -225,11 +225,29 @@ pub(crate) fn start_marked<'a, 'b>(
     gc: &mut GlobalContext,
     surface: &'b mut Surface<'a>,
 ) -> TagHandle<'a, 'b> {
+    start_content(gc, surface, ContentTag::Other)
+}
+
+/// Returns a [`TagHandle`] that automatically calls [`Surface::end_tagged`]
+/// when dropped.
+pub(crate) fn start_span<'a, 'b>(
+    gc: &mut GlobalContext,
+    surface: &'b mut Surface<'a>,
+    span: SpanTag,
+) -> TagHandle<'a, 'b> {
+    start_content(gc, surface, ContentTag::Span(span))
+}
+
+fn start_content<'a, 'b>(
+    gc: &mut GlobalContext,
+    surface: &'b mut Surface<'a>,
+    content: ContentTag,
+) -> TagHandle<'a, 'b> {
     let content = if let Some((_, kind)) = gc.tags.in_artifact {
         let ty = artifact_type(kind);
         ContentTag::Artifact(ty)
     } else {
-        ContentTag::Other
+        content
     };
     let id = surface.start_tagged(content);
     gc.tags.push(TagNode::Leaf(id));
@@ -295,13 +313,15 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) {
     } else if let Some(image) = elem.to_packed::<ImageElem>() {
         let alt = image.alt(StyleChain::default()).map(|s| s.to_string());
 
-        let figure_tag = (gc.tags.parent().0)
-            .and_then(|parent| parent.as_standard_mut())
-            .filter(|tag| tag.kind == TagKind::Figure && tag.alt_text.is_none());
+        let figure_tag = (gc.tags.parent())
+            .and_then(StackEntryKind::as_standard_mut)
+            .filter(|tag| tag.kind == TagKind::Figure);
         if let Some(figure_tag) = figure_tag {
-            // HACK: set alt text of outer figure tag, if the contained image
-            // has alt text specified
-            figure_tag.alt_text = alt;
+            if figure_tag.alt_text.is_none() {
+                // HACK: set alt text of outer figure tag, if the contained image
+                // has alt text specified
+                figure_tag.alt_text = alt;
+            }
             return;
         } else {
             TagKind::Figure.with_alt_text(alt)
