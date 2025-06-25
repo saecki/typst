@@ -14,6 +14,7 @@ use typst_library::visualize::{
 use typst_syntax::Span;
 
 use crate::convert::{FrameContext, GlobalContext};
+use crate::tags;
 use crate::util::{SizeExt, TransformExt};
 
 #[typst_macros::time(name = "handle image")]
@@ -32,6 +33,8 @@ pub(crate) fn handle_image(
 
     gc.image_spans.insert(span);
 
+    let mut handle = tags::start_marked(gc, surface);
+    let surface = handle.surface();
     match image.kind() {
         ImageKind::Raster(raster) => {
             let (exif_transform, new_size) = exif_transform(raster, size);
