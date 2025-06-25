@@ -25,7 +25,6 @@ use crate::layout::{BlockElem, Length};
 ///   Berlin, the 22nd of December, 2022
 /// ]
 /// ```
-// TODO: should this be a PDF artifact by deafult?
 #[elem(Locatable, Show)]
 pub struct RepeatElem {
     /// The content to repeat.
