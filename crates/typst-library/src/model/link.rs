@@ -91,6 +91,11 @@ pub struct LinkElem {
         _ => args.expect("body")?,
     })]
     pub body: Content,
+
+    /// A destination style that should be applied to elements.
+    #[internal]
+    #[ghost]
+    pub current: Option<Destination>,
 }
 
 impl LinkElem {

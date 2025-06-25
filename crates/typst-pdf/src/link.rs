@@ -5,7 +5,6 @@ use krilla::action::{Action, LinkAction};
 use krilla::annotation::Target;
 use krilla::destination::XyzDestination;
 use krilla::geom as kg;
-use typst_library::foundations::LinkMarker;
 use typst_library::layout::{Abs, Point, Position, Size};
 use typst_library::model::Destination;
 
@@ -24,10 +23,10 @@ pub(crate) struct LinkAnnotation {
 pub(crate) fn handle_link(
     fc: &mut FrameContext,
     gc: &mut GlobalContext,
-    link: &LinkMarker,
+    dest: &Destination,
     size: Size,
 ) {
-    let target = match &link.dest {
+    let target = match dest {
         Destination::Url(u) => {
             Target::Action(Action::Link(LinkAction::new(u.to_string())))
         }
@@ -51,14 +50,15 @@ pub(crate) fn handle_link(
     };
 
     let entry = gc.tags.stack.last_mut().expect("a link parent");
-    let StackEntryKind::Link(link_id, _) = entry.kind else {
+    let StackEntryKind::Link(link_id, link) = &entry.kind else {
         unreachable!("expected a link parent")
     };
+    let alt = link.alt.as_ref().map(EcoString::to_string);
 
     let rect = to_rect(fc, size);
     let quadpoints = quadpoints(rect);
 
-    match fc.link_annotations.entry(link_id) {
+    match fc.link_annotations.entry(*link_id) {
         Entry::Occupied(occupied) => {
             // Update the bounding box and add the quadpoints of an existing link annotation.
             let annotation = occupied.into_mut();
@@ -73,7 +73,7 @@ pub(crate) fn handle_link(
                 placeholder,
                 rect,
                 quad_points: quadpoints.to_vec(),
-                alt: link.alt.as_ref().map(EcoString::to_string),
+                alt,
                 target,
             });
         }
