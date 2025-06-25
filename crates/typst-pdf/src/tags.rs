@@ -12,7 +12,7 @@ use typst_library::foundations::{Content, LinkMarker, Packed, StyleChain};
 use typst_library::introspection::Location;
 use typst_library::model::{
     Destination, FigureCaption, FigureElem, HeadingElem, Outlinable, OutlineElem,
-    OutlineEntry, TableCell, TableElem, TableHLine, TableVLine,
+    OutlineEntry, TableCell, TableElem,
 };
 use typst_library::pdf::{ArtifactElem, ArtifactKind, PdfTagElem, PdfTagKind};
 use typst_library::visualize::ImageElem;
@@ -246,6 +246,10 @@ fn start_content<'a, 'b>(
     let content = if let Some((_, kind)) = gc.tags.in_artifact {
         let ty = artifact_type(kind);
         ContentTag::Artifact(ty)
+    } else if let Some(StackEntryKind::Table(_)) = gc.tags.stack.last().map(|e| &e.kind) {
+        // Mark any direct child of a table as an aritfact. Any real content
+        // will be wrapped inside a `TableCell`.
+        ContentTag::Artifact(ArtifactType::Other)
     } else {
         content
     };
@@ -338,12 +342,6 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) {
         return;
     } else if let Some(cell) = elem.to_packed::<TableCell>() {
         push_stack(gc, loc, StackEntryKind::TableCell(cell.clone()));
-        return;
-    } else if let Some(_) = elem.to_packed::<TableHLine>() {
-        start_artifact(gc, loc, ArtifactKind::Other);
-        return;
-    } else if let Some(_) = elem.to_packed::<TableVLine>() {
-        start_artifact(gc, loc, ArtifactKind::Other);
         return;
     } else {
         return;
