@@ -10,6 +10,7 @@ use krilla::tagging::{
 };
 use typst_library::foundations::{Content, LinkMarker, Packed, StyleChain};
 use typst_library::introspection::Location;
+use typst_library::layout::RepeatElem;
 use typst_library::model::{
     Destination, FigureCaption, FigureElem, HeadingElem, Outlinable, OutlineElem,
     OutlineEntry, TableCell, TableElem,
@@ -286,6 +287,9 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) {
     if let Some(artifact) = elem.to_packed::<ArtifactElem>() {
         let kind = artifact.kind(StyleChain::default());
         start_artifact(gc, loc, kind);
+        return;
+    } else if let Some(_) = elem.to_packed::<RepeatElem>() {
+        start_artifact(gc, loc, ArtifactKind::Other);
         return;
     }
 
