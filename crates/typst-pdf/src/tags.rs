@@ -45,6 +45,16 @@ pub(crate) enum StackEntryKind {
     TableCell(Packed<TableCell>),
 }
 
+impl StackEntryKind {
+    pub(crate) fn as_standard_mut(&mut self) -> Option<&mut Tag> {
+        if let Self::Standard(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+}
+
 pub(crate) struct TableCtx {
     table: Packed<TableElem>,
     rows: Vec<Vec<Option<(Packed<TableCell>, Tag, Vec<TagNode>)>>>,
@@ -144,10 +154,6 @@ impl Tags {
             .expect("initialized placeholder node")
     }
 
-    pub(crate) fn is_root(&self) -> bool {
-        self.stack.is_empty()
-    }
-
     /// Returns the current parent's list of children and the structure type ([Tag]).
     /// In case of the document root the structure type will be `None`.
     pub(crate) fn parent(&mut self) -> (Option<&mut StackEntryKind>, &mut Vec<TagNode>) {
@@ -196,23 +202,38 @@ impl Tags {
     }
 }
 
-/// Marked-content may not cross page boundaries: restart tag that was still open
-/// at the end of the last page.
-pub(crate) fn restart_open(gc: &mut GlobalContext, surface: &mut Surface) {
-    // TODO: somehow avoid empty marked-content sequences
-    if let Some((loc, kind)) = gc.tags.in_artifact {
-        start_artifact(gc, surface, loc, kind);
-    } else if let Some(entry) = gc.tags.stack.last_mut() {
-        let id = surface.start_tagged(ContentTag::Other);
-        entry.nodes.push(TagNode::Leaf(id));
+/// Automatically calls [`Surface::end_tagged`] when dropped.
+pub(crate) struct TagHandle<'a, 'b> {
+    surface: &'b mut Surface<'a>,
+}
+
+impl Drop for TagHandle<'_, '_> {
+    fn drop(&mut self) {
+        self.surface.end_tagged();
     }
 }
 
-/// Marked-content may not cross page boundaries: end any open tag.
-pub(crate) fn end_open(gc: &mut GlobalContext, surface: &mut Surface) {
-    if !gc.tags.stack.is_empty() || gc.tags.in_artifact.is_some() {
-        surface.end_tagged();
+impl<'a> TagHandle<'a, '_> {
+    pub(crate) fn surface<'c>(&'c mut self) -> &'c mut Surface<'a> {
+        &mut self.surface
     }
+}
+
+/// Returns a [`TagHandle`] that automatically calls [`Surface::end_tagged`]
+/// when dropped.
+pub(crate) fn start_marked<'a, 'b>(
+    gc: &mut GlobalContext,
+    surface: &'b mut Surface<'a>,
+) -> TagHandle<'a, 'b> {
+    let content = if let Some((_, kind)) = gc.tags.in_artifact {
+        let ty = artifact_type(kind);
+        ContentTag::Artifact(ty)
+    } else {
+        ContentTag::Other
+    };
+    let id = surface.start_tagged(content);
+    gc.tags.push(TagNode::Leaf(id));
+    TagHandle { surface }
 }
 
 /// Add all annotations that were found in the page frame.
@@ -232,11 +253,7 @@ pub(crate) fn add_annotations(
     }
 }
 
-pub(crate) fn handle_start(
-    gc: &mut GlobalContext,
-    surface: &mut Surface,
-    elem: &Content,
-) {
+pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) {
     if gc.tags.in_artifact.is_some() {
         // Don't nest artifacts
         return;
@@ -245,9 +262,8 @@ pub(crate) fn handle_start(
     let loc = elem.location().unwrap();
 
     if let Some(artifact) = elem.to_packed::<ArtifactElem>() {
-        end_open(gc, surface);
         let kind = artifact.kind(StyleChain::default());
-        start_artifact(gc, surface, loc, kind);
+        start_artifact(gc, loc, kind);
         return;
     }
 
@@ -279,79 +295,55 @@ pub(crate) fn handle_start(
     } else if let Some(image) = elem.to_packed::<ImageElem>() {
         let alt = image.alt(StyleChain::default()).map(|s| s.to_string());
 
-        end_open(gc, surface);
-        let id = surface.start_tagged(ContentTag::Other);
-        let mut node = TagNode::Leaf(id);
-
-        if let Some(StackEntryKind::Standard(parent)) = gc.tags.parent().0 {
-            if parent.kind == TagKind::Figure && parent.alt_text.is_none() {
-                // HACK: set alt text of outer figure tag, if the contained image
-                // has alt text specified
-                parent.alt_text = alt;
-            } else {
-                node = TagNode::Group(TagKind::Figure.with_alt_text(alt), vec![node]);
-            }
+        let figure_tag = (gc.tags.parent().0)
+            .and_then(|parent| parent.as_standard_mut())
+            .filter(|tag| tag.kind == TagKind::Figure && tag.alt_text.is_none());
+        if let Some(figure_tag) = figure_tag {
+            // HACK: set alt text of outer figure tag, if the contained image
+            // has alt text specified
+            figure_tag.alt_text = alt;
+            return;
         } else {
-            node = TagNode::Group(TagKind::Figure.with_alt_text(alt), vec![node]);
+            TagKind::Figure.with_alt_text(alt)
         }
-        gc.tags.push(node);
-
-        return;
     } else if let Some(_) = elem.to_packed::<FigureCaption>() {
         TagKind::Caption.into()
     } else if let Some(link) = elem.to_packed::<LinkMarker>() {
         let link_id = gc.tags.next_link_id();
-        push_stack(gc, surface, loc, StackEntryKind::Link(link_id, link.clone()));
+        push_stack(gc, loc, StackEntryKind::Link(link_id, link.clone()));
         return;
     } else if let Some(table) = elem.to_packed::<TableElem>() {
         let ctx = TableCtx { table: table.clone(), rows: Vec::new() };
-        push_stack(gc, surface, loc, StackEntryKind::Table(ctx));
+        push_stack(gc, loc, StackEntryKind::Table(ctx));
         return;
     } else if let Some(cell) = elem.to_packed::<TableCell>() {
-        push_stack(gc, surface, loc, StackEntryKind::TableCell(cell.clone()));
+        push_stack(gc, loc, StackEntryKind::TableCell(cell.clone()));
         return;
     } else if let Some(_) = elem.to_packed::<TableHLine>() {
-        end_open(gc, surface);
-        start_artifact(gc, surface, loc, ArtifactKind::Other);
+        start_artifact(gc, loc, ArtifactKind::Other);
         return;
     } else if let Some(_) = elem.to_packed::<TableVLine>() {
-        end_open(gc, surface);
-        start_artifact(gc, surface, loc, ArtifactKind::Other);
+        start_artifact(gc, loc, ArtifactKind::Other);
         return;
     } else {
         return;
     };
 
-    push_stack(gc, surface, loc, StackEntryKind::Standard(tag));
+    push_stack(gc, loc, StackEntryKind::Standard(tag));
 }
 
-fn push_stack(
-    gc: &mut GlobalContext,
-    surface: &mut Surface,
-    loc: Location,
-    kind: StackEntryKind,
-) {
+fn push_stack(gc: &mut GlobalContext, loc: Location, kind: StackEntryKind) {
     if !gc.tags.context_supports(&kind) {
         // TODO: error or warning?
     }
 
-    // close previous marked-content and open a nested tag.
-    end_open(gc, surface);
-    let id = surface.start_tagged(krilla::tagging::ContentTag::Other);
-    gc.tags
-        .stack
-        .push(StackEntry { loc, kind, nodes: vec![TagNode::Leaf(id)] });
+    gc.tags.stack.push(StackEntry { loc, kind, nodes: Vec::new() });
 }
 
-pub(crate) fn handle_end(gc: &mut GlobalContext, surface: &mut Surface, loc: Location) {
+pub(crate) fn handle_end(gc: &mut GlobalContext, loc: Location) {
     if let Some((l, _)) = gc.tags.in_artifact {
         if l == loc {
             gc.tags.in_artifact = None;
-            surface.end_tagged();
-            if let Some(entry) = gc.tags.stack.last_mut() {
-                let id = surface.start_tagged(ContentTag::Other);
-                entry.nodes.push(TagNode::Leaf(id));
-            }
         }
         return;
     }
@@ -359,8 +351,6 @@ pub(crate) fn handle_end(gc: &mut GlobalContext, surface: &mut Surface, loc: Loc
     let Some(entry) = gc.tags.stack.pop_if(|e| e.loc == loc) else {
         return;
     };
-
-    surface.end_tagged();
 
     let node = match entry.kind {
         StackEntryKind::Standard(tag) => TagNode::Group(tag, entry.nodes),
@@ -387,30 +377,14 @@ pub(crate) fn handle_end(gc: &mut GlobalContext, surface: &mut Surface, loc: Loc
 
             table_ctx.insert(cell, entry.nodes);
 
-            // TODO: somehow avoid empty marked-content sequences
-            let id = surface.start_tagged(ContentTag::Other);
-            gc.tags.push(TagNode::Leaf(id));
             return;
         }
     };
 
     gc.tags.push(node);
-    if !gc.tags.is_root() {
-        // TODO: somehow avoid empty marked-content sequences
-        let id = surface.start_tagged(ContentTag::Other);
-        gc.tags.push(TagNode::Leaf(id));
-    }
 }
 
-fn start_artifact(
-    gc: &mut GlobalContext,
-    surface: &mut Surface,
-    loc: Location,
-    kind: ArtifactKind,
-) {
-    let ty = artifact_type(kind);
-    let id = surface.start_tagged(ContentTag::Artifact(ty));
-    gc.tags.push(TagNode::Leaf(id));
+fn start_artifact(gc: &mut GlobalContext, loc: Location, kind: ArtifactKind) {
     gc.tags.in_artifact = Some((loc, kind));
 }
 

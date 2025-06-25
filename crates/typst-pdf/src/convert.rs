@@ -13,7 +13,7 @@ use krilla::{Document, SerializeSettings};
 use krilla_svg::render_svg_glyph;
 use typst_library::diag::{bail, error, SourceDiagnostic, SourceResult};
 use typst_library::foundations::{NativeElement, Repr};
-use typst_library::introspection::{self, Location};
+use typst_library::introspection::{Location, Tag};
 use typst_library::layout::{
     Abs, Frame, FrameItem, GroupItem, PagedDocument, Size, Transform,
 };
@@ -110,8 +110,6 @@ fn convert_pages(gc: &mut GlobalContext, document: &mut Document) -> SourceResul
             let mut surface = page.surface();
             let mut fc = FrameContext::new(typst_page.frame.size());
 
-            tags::restart_open(gc, &mut surface);
-
             handle_frame(
                 &mut fc,
                 &typst_page.frame,
@@ -119,8 +117,6 @@ fn convert_pages(gc: &mut GlobalContext, document: &mut Document) -> SourceResul
                 &mut surface,
                 gc,
             )?;
-
-            tags::end_open(gc, &mut surface);
 
             surface.finish();
 
@@ -286,12 +282,8 @@ pub(crate) fn handle_frame(
                 handle_image(gc, fc, image, *size, surface, *span)?
             }
             FrameItem::Link(link, size) => handle_link(fc, gc, link, *size),
-            FrameItem::Tag(introspection::Tag::Start(elem)) => {
-                tags::handle_start(gc, surface, elem)
-            }
-            FrameItem::Tag(introspection::Tag::End(loc, _)) => {
-                tags::handle_end(gc, surface, *loc);
-            }
+            FrameItem::Tag(Tag::Start(elem)) => tags::handle_start(gc, elem),
+            FrameItem::Tag(Tag::End(loc, _)) => tags::handle_end(gc, *loc),
         }
 
         fc.pop();
@@ -306,7 +298,7 @@ pub(crate) fn handle_group(
     fc: &mut FrameContext,
     group: &GroupItem,
     surface: &mut Surface,
-    context: &mut GlobalContext,
+    gc: &mut GlobalContext,
 ) -> SourceResult<()> {
     fc.push();
     fc.state_mut().pre_concat(group.transform);
@@ -322,10 +314,12 @@ pub(crate) fn handle_group(
         .and_then(|p| p.transform(fc.state().transform.to_krilla()));
 
     if let Some(clip_path) = &clip_path {
+        let mut handle = tags::start_marked(gc, surface);
+        let surface = handle.surface();
         surface.push_clip_path(clip_path, &krilla::paint::FillRule::NonZero);
     }
 
-    handle_frame(fc, &group.frame, None, surface, context)?;
+    handle_frame(fc, &group.frame, None, surface, gc)?;
 
     if clip_path.is_some() {
         surface.pop();
