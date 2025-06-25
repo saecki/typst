@@ -1,5 +1,5 @@
 use ecow::EcoString;
-use typst_macros::{cast, elem};
+use typst_macros::{cast, elem, Cast};
 
 use crate::diag::SourceResult;
 use crate::engine::Engine;
@@ -200,7 +200,7 @@ pub struct ArtifactElem {
     pub body: Content,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Cast)]
 pub enum ArtifactKind {
     /// Page header artifacts.
     Header,
@@ -211,20 +211,6 @@ pub enum ArtifactKind {
     /// Other artifacts.
     #[default]
     Other,
-}
-
-cast! {
-    ArtifactKind,
-    self => match self {
-        ArtifactKind::Header => "header".into_value(),
-        ArtifactKind::Footer => "footer".into_value(),
-        ArtifactKind::Page => "page".into_value(),
-        ArtifactKind::Other => "other".into_value(),
-    },
-    "header" => Self::Header,
-    "footer" => Self::Footer,
-    "page" => Self::Page,
-    "other" => Self::Other,
 }
 
 impl Show for Packed<ArtifactElem> {
