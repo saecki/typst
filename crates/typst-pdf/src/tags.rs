@@ -42,6 +42,8 @@ pub(crate) struct StackEntry {
 pub(crate) enum StackEntryKind {
     Standard(Tag),
     Link(LinkId, Packed<LinkMarker>),
+    Outline(OutlineCtx),
+    OutlineEntry(Packed<OutlineEntry>),
     Table(TableCtx),
     TableCell(Packed<TableCell>),
 }
@@ -56,12 +58,82 @@ impl StackEntryKind {
     }
 }
 
+pub(crate) struct OutlineCtx {
+    stack: Vec<OutlineSection>,
+}
+
+pub(crate) struct OutlineSection {
+    entries: Vec<TagNode>,
+}
+
+impl OutlineSection {
+    const fn new() -> Self {
+        OutlineSection { entries: Vec::new() }
+    }
+
+    fn push(&mut self, entry: TagNode) {
+        self.entries.push(entry);
+    }
+
+    fn into_tag(self) -> TagNode {
+        TagNode::Group(TagKind::TOC.into(), self.entries)
+    }
+}
+
+impl OutlineCtx {
+    fn new() -> Self {
+        Self { stack: Vec::new() }
+    }
+
+    fn insert(
+        &mut self,
+        outline_nodes: &mut Vec<TagNode>,
+        entry: Packed<OutlineEntry>,
+        nodes: Vec<TagNode>,
+    ) {
+        let expected_len = entry.level.get() - 1;
+        if self.stack.len() < expected_len {
+            self.stack.resize_with(expected_len, || OutlineSection::new());
+        } else {
+            while self.stack.len() > expected_len {
+                self.finish_section(outline_nodes);
+            }
+        }
+
+        let section_entry = TagNode::Group(TagKind::TOCI.into(), nodes);
+        self.push(outline_nodes, section_entry);
+    }
+
+    fn finish_section(&mut self, outline_nodes: &mut Vec<TagNode>) {
+        let sub_section = self.stack.pop().unwrap().into_tag();
+        self.push(outline_nodes, sub_section);
+    }
+
+    fn push(&mut self, outline_nodes: &mut Vec<TagNode>, entry: TagNode) {
+        match self.stack.last_mut() {
+            Some(section) => section.push(entry),
+            None => outline_nodes.push(entry),
+        }
+    }
+
+    fn build_outline(mut self, mut outline_nodes: Vec<TagNode>) -> Vec<TagNode> {
+        while self.stack.len() > 0 {
+            self.finish_section(&mut outline_nodes);
+        }
+        outline_nodes
+    }
+}
+
 pub(crate) struct TableCtx {
     table: Packed<TableElem>,
     rows: Vec<Vec<Option<(Packed<TableCell>, Tag, Vec<TagNode>)>>>,
 }
 
 impl TableCtx {
+    fn new(table: Packed<TableElem>) -> Self {
+        Self { table: table.clone(), rows: Vec::new() }
+    }
+
     fn insert(&mut self, cell: Packed<TableCell>, nodes: Vec<TagNode>) {
         let x = cell.x(StyleChain::default()).unwrap_or_else(|| unreachable!());
         let y = cell.y(StyleChain::default()).unwrap_or_else(|| unreachable!());
@@ -312,9 +384,11 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) {
             _ => TagKind::H6(Some(name)).into(),
         }
     } else if let Some(_) = elem.to_packed::<OutlineElem>() {
-        TagKind::TOC.into()
-    } else if let Some(_) = elem.to_packed::<OutlineEntry>() {
-        TagKind::TOCI.into()
+        push_stack(gc, loc, StackEntryKind::Outline(OutlineCtx::new()));
+        return;
+    } else if let Some(entry) = elem.to_packed::<OutlineEntry>() {
+        push_stack(gc, loc, StackEntryKind::OutlineEntry(entry.clone()));
+        return;
     } else if let Some(_) = elem.to_packed::<FigureElem>() {
         let alt = None; // TODO
         TagKind::Figure.with_alt_text(alt)
@@ -340,8 +414,7 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) {
         push_stack(gc, loc, StackEntryKind::Link(link_id, link.clone()));
         return;
     } else if let Some(table) = elem.to_packed::<TableElem>() {
-        let ctx = TableCtx { table: table.clone(), rows: Vec::new() };
-        push_stack(gc, loc, StackEntryKind::Table(ctx));
+        push_stack(gc, loc, StackEntryKind::Table(TableCtx::new(table.clone())));
         return;
     } else if let Some(cell) = elem.to_packed::<TableCell>() {
         push_stack(gc, loc, StackEntryKind::TableCell(cell.clone()));
@@ -384,6 +457,20 @@ pub(crate) fn handle_end(gc: &mut GlobalContext, loc: Location) {
                 node = TagNode::Group(TagKind::Reference.into(), vec![node]);
             }
             node
+        }
+        StackEntryKind::Outline(ctx) => {
+            let nodes = ctx.build_outline(entry.nodes);
+            TagNode::Group(TagKind::TOC.into(), nodes)
+        }
+        StackEntryKind::OutlineEntry(outline_entry) => {
+            let parent = gc.tags.stack.last_mut().expect("outline");
+            let StackEntryKind::Outline(outline_ctx) = &mut parent.kind else {
+                unreachable!("expected outline")
+            };
+
+            outline_ctx.insert(&mut parent.nodes, outline_entry, entry.nodes);
+
+            return;
         }
         StackEntryKind::Table(ctx) => {
             let summary = ctx.table.summary(StyleChain::default()).map(EcoString::into);
