@@ -1,18 +1,18 @@
-use std::collections::hash_map::Entry;
-
 use ecow::EcoString;
 use krilla::action::{Action, LinkAction};
 use krilla::annotation::Target;
+use krilla::configure::Validator;
 use krilla::destination::XyzDestination;
 use krilla::geom as kg;
 use typst_library::layout::{Abs, Point, Position, Size};
 use typst_library::model::Destination;
 
 use crate::convert::{FrameContext, GlobalContext};
-use crate::tags::{Placeholder, StackEntryKind, TagNode};
+use crate::tags::{self, Placeholder, StackEntryKind, TagNode};
 use crate::util::{AbsExt, PointExt};
 
 pub(crate) struct LinkAnnotation {
+    pub(crate) id: tags::LinkId,
     pub(crate) placeholder: Placeholder,
     pub(crate) alt: Option<String>,
     pub(crate) rect: kg::Rect,
@@ -50,7 +50,7 @@ pub(crate) fn handle_link(
     };
 
     let entry = gc.tags.stack.last_mut().expect("a link parent");
-    let StackEntryKind::Link(link_id, link) = &entry.kind else {
+    let StackEntryKind::Link(link_id, ref link) = entry.kind else {
         unreachable!("expected a link parent")
     };
     let alt = link.alt.as_ref().map(EcoString::to_string);
@@ -58,18 +58,21 @@ pub(crate) fn handle_link(
     let rect = to_rect(fc, size);
     let quadpoints = quadpoints(rect);
 
-    match fc.link_annotations.entry(*link_id) {
-        Entry::Occupied(occupied) => {
-            // Update the bounding box and add the quadpoints of an existing link annotation.
-            let annotation = occupied.into_mut();
+    // Unfortunately quadpoints still aren't well supported by most PDF readers,
+    // even by acrobat. Which is understandable since they were only introduced
+    // in PDF 1.6 (2005) /s
+    let should_use_quadpoints = gc.options.standards.config.validator() == Validator::UA1;
+    match fc.get_link_annotation(link_id) {
+        Some(annotation) if should_use_quadpoints => {
+            // Update the bounding box and add the quadpoints to an existing link annotation.
             annotation.rect = bounding_rect(annotation.rect, rect);
             annotation.quad_points.extend_from_slice(&quadpoints);
         }
-        Entry::Vacant(vacant) => {
+        _ => {
             let placeholder = gc.tags.reserve_placeholder();
             gc.tags.push(TagNode::Placeholder(placeholder));
-
-            vacant.insert(LinkAnnotation {
+            fc.push_link_annotation(LinkAnnotation {
+                id: link_id,
                 placeholder,
                 rect,
                 quad_points: quadpoints.to_vec(),

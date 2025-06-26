@@ -1,5 +1,4 @@
 use std::cell::OnceCell;
-use std::collections::HashMap;
 
 use ecow::EcoString;
 use krilla::page::Page;
@@ -335,10 +334,11 @@ fn start_content<'a, 'b>(
 pub(crate) fn add_annotations(
     gc: &mut GlobalContext,
     page: &mut Page,
-    annotations: HashMap<LinkId, LinkAnnotation>,
+    annotations: Vec<LinkAnnotation>,
 ) {
-    for annotation in annotations.into_values() {
-        let LinkAnnotation { placeholder, alt, rect, quad_points, target } = annotation;
+    for annotation in annotations.into_iter() {
+        let LinkAnnotation { id: _, placeholder, alt, rect, quad_points, target } =
+            annotation;
         let annot = krilla::annotation::Annotation::new_link(
             krilla::annotation::LinkAnnotation::new(rect, Some(quad_points), target),
             alt,

@@ -171,14 +171,14 @@ impl State {
 /// Context needed for converting a single frame.
 pub(crate) struct FrameContext {
     states: Vec<State>,
-    pub(crate) link_annotations: HashMap<tags::LinkId, LinkAnnotation>,
+    link_annotations: Vec<LinkAnnotation>,
 }
 
 impl FrameContext {
     pub(crate) fn new(size: Size) -> Self {
         Self {
             states: vec![State::new(size)],
-            link_annotations: HashMap::new(),
+            link_annotations: Vec::new(),
         }
     }
 
@@ -196,6 +196,20 @@ impl FrameContext {
 
     pub(crate) fn state_mut(&mut self) -> &mut State {
         self.states.last_mut().unwrap()
+    }
+
+    pub(crate) fn get_link_annotation(
+        &mut self,
+        link_id: tags::LinkId,
+    ) -> Option<&mut LinkAnnotation> {
+        self.link_annotations
+            .iter_mut()
+            .rev()
+            .find(|annot| annot.id == link_id)
+    }
+
+    pub(crate) fn push_link_annotation(&mut self, annotation: LinkAnnotation) {
+        self.link_annotations.push(annotation);
     }
 }
 
