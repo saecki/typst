@@ -40,11 +40,11 @@ pub(crate) struct StackEntry {
 
 pub(crate) enum StackEntryKind {
     Standard(Tag),
-    Link(LinkId, Packed<LinkMarker>),
     Outline(OutlineCtx),
     OutlineEntry(Packed<OutlineEntry>),
     Table(TableCtx),
     TableCell(Packed<TableCell>),
+    Link(LinkId, Packed<LinkMarker>),
 }
 
 impl StackEntryKind {
@@ -409,15 +409,15 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) {
         }
     } else if let Some(_) = elem.to_packed::<FigureCaption>() {
         TagKind::Caption.into()
-    } else if let Some(link) = elem.to_packed::<LinkMarker>() {
-        let link_id = gc.tags.next_link_id();
-        push_stack(gc, loc, StackEntryKind::Link(link_id, link.clone()));
-        return;
     } else if let Some(table) = elem.to_packed::<TableElem>() {
         push_stack(gc, loc, StackEntryKind::Table(TableCtx::new(table.clone())));
         return;
     } else if let Some(cell) = elem.to_packed::<TableCell>() {
         push_stack(gc, loc, StackEntryKind::TableCell(cell.clone()));
+        return;
+    } else if let Some(link) = elem.to_packed::<LinkMarker>() {
+        let link_id = gc.tags.next_link_id();
+        push_stack(gc, loc, StackEntryKind::Link(link_id, link.clone()));
         return;
     } else {
         return;
@@ -448,16 +448,6 @@ pub(crate) fn handle_end(gc: &mut GlobalContext, loc: Location) {
 
     let node = match entry.kind {
         StackEntryKind::Standard(tag) => TagNode::Group(tag, entry.nodes),
-        StackEntryKind::Link(_, link) => {
-            let alt = link.alt.as_ref().map(EcoString::to_string);
-            let tag = TagKind::Link.with_alt_text(alt);
-            let mut node = TagNode::Group(tag, entry.nodes);
-            // Wrap link in reference tag, if it's not a url.
-            if let Destination::Position(_) | Destination::Location(_) = link.dest {
-                node = TagNode::Group(TagKind::Reference.into(), vec![node]);
-            }
-            node
-        }
         StackEntryKind::Outline(ctx) => {
             let nodes = ctx.build_outline(entry.nodes);
             TagNode::Group(TagKind::TOC.into(), nodes)
@@ -486,6 +476,16 @@ pub(crate) fn handle_end(gc: &mut GlobalContext, loc: Location) {
             table_ctx.insert(cell, entry.nodes);
 
             return;
+        }
+        StackEntryKind::Link(_, link) => {
+            let alt = link.alt.as_ref().map(EcoString::to_string);
+            let tag = TagKind::Link.with_alt_text(alt);
+            let mut node = TagNode::Group(tag, entry.nodes);
+            // Wrap link in reference tag, if it's not a url.
+            if let Destination::Position(_) | Destination::Location(_) = link.dest {
+                node = TagNode::Group(TagKind::Reference.into(), vec![node]);
+            }
+            node
         }
     };
 
