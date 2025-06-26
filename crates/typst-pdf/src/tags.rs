@@ -11,7 +11,7 @@ use typst_library::foundations::{Content, LinkMarker, Packed, StyleChain};
 use typst_library::introspection::Location;
 use typst_library::layout::RepeatElem;
 use typst_library::model::{
-    Destination, FigureCaption, FigureElem, HeadingElem, Outlinable, OutlineElem,
+    Destination, FigureCaption, FigureElem, HeadingElem, Outlinable, OutlineBody,
     OutlineEntry, TableCell, TableElem,
 };
 use typst_library::pdf::{ArtifactElem, ArtifactKind, PdfTagElem, PdfTagKind};
@@ -383,7 +383,7 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) {
             // TODO: when targeting PDF 2.0 headings `> 6` are supported
             _ => TagKind::H6(Some(name)).into(),
         }
-    } else if let Some(_) = elem.to_packed::<OutlineElem>() {
+    } else if let Some(_) = elem.to_packed::<OutlineBody>() {
         push_stack(gc, loc, StackEntryKind::Outline(OutlineCtx::new()));
         return;
     } else if let Some(entry) = elem.to_packed::<OutlineEntry>() {

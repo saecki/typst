@@ -273,6 +273,7 @@ impl Show for Packed<OutlineElem> {
         let depth = self.depth(styles).unwrap_or(NonZeroUsize::MAX);
 
         // Build the outline entries.
+        let mut entries = vec![];
         for elem in elems {
             let Some(outlinable) = elem.with::<dyn Outlinable>() else {
                 bail!(span, "cannot outline {}", elem.func().name());
@@ -281,9 +282,12 @@ impl Show for Packed<OutlineElem> {
             let level = outlinable.level();
             if outlinable.outlined() && level <= depth {
                 let entry = OutlineEntry::new(level, elem);
-                seq.push(entry.pack().spanned(span));
+                entries.push(entry.pack().spanned(span));
             }
         }
+
+        // Wrap the entries into a marker for pdf tagging.
+        seq.push(OutlineBody::new(Content::sequence(entries)).pack());
 
         Ok(Content::sequence(seq))
     }
@@ -305,6 +309,19 @@ impl ShowSet for Packed<OutlineElem> {
 
 impl LocalName for Packed<OutlineElem> {
     const KEY: &'static str = "outline";
+}
+
+/// Only used to mark
+#[elem(Locatable, Show)]
+pub struct OutlineBody {
+    #[required]
+    body: Content,
+}
+
+impl Show for Packed<OutlineBody> {
+    fn show(&self, _: &mut Engine, _: StyleChain) -> SourceResult<Content> {
+        Ok(self.body.clone())
+    }
 }
 
 /// Defines how an outline is indented.
