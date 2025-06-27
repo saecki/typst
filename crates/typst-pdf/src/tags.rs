@@ -1,4 +1,5 @@
 use std::cell::OnceCell;
+use std::num::NonZeroU32;
 
 use ecow::EcoString;
 use krilla::page::Page;
@@ -372,17 +373,9 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) {
             _ => todo!(),
         }
     } else if let Some(heading) = elem.to_packed::<HeadingElem>() {
-        let level = heading.level();
+        let level = heading.level().try_into().unwrap_or(NonZeroU32::MAX);
         let name = heading.body.plain_text().to_string();
-        match level.get() {
-            1 => TagKind::H1(Some(name)).into(),
-            2 => TagKind::H2(Some(name)).into(),
-            3 => TagKind::H3(Some(name)).into(),
-            4 => TagKind::H4(Some(name)).into(),
-            5 => TagKind::H5(Some(name)).into(),
-            // TODO: when targeting PDF 2.0 headings `> 6` are supported
-            _ => TagKind::H6(Some(name)).into(),
-        }
+        TagKind::Hn(level, Some(name)).into()
     } else if let Some(_) = elem.to_packed::<OutlineBody>() {
         push_stack(gc, loc, StackEntryKind::Outline(OutlineCtx::new()));
         return;
