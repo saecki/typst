@@ -281,6 +281,11 @@ pub(crate) fn handle_frame(
         handle_shape(fc, &shape, surface, gc, Span::detached())?;
     }
 
+    eprintln!("==================== frame ====================");
+    for (_, item) in frame.items() {
+        dbg!(item);
+    }
+    eprintln!("===============================================");
     for (point, item) in frame.items() {
         fc.push();
         fc.state_mut().pre_concat(Transform::translate(point.x, point.y));
