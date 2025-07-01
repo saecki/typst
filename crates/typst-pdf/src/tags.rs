@@ -169,6 +169,15 @@ impl TableCtx {
         Self { table: table.clone(), rows: Vec::new() }
     }
 
+    fn contains(&self, cell: &Packed<TableCell>) -> bool {
+        let x = cell.x(StyleChain::default()).unwrap_or_else(|| unreachable!());
+        let y = cell.y(StyleChain::default()).unwrap_or_else(|| unreachable!());
+
+        let Some(row) = self.rows.get(y) else { return false };
+        let Some(cell) = row.get(x) else { return false };
+        !matches!(cell, GridCell::Missing)
+    }
+
     fn insert(&mut self, cell: Packed<TableCell>, nodes: Vec<TagNode>) {
         let x = cell.x(StyleChain::default()).unwrap_or_else(|| unreachable!());
         let y = cell.y(StyleChain::default()).unwrap_or_else(|| unreachable!());
@@ -230,7 +239,7 @@ impl TableCtx {
                         }
                         a
                     })
-                    .expect("tables must have at least one column")
+                    .unwrap_or(TableCellKind::Data)
             })
             .collect::<Vec<_>>();
 
@@ -524,7 +533,20 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) {
         push_stack(gc, loc, StackEntryKind::Table(TableCtx::new(table.clone())));
         return;
     } else if let Some(cell) = elem.to_packed::<TableCell>() {
-        push_stack(gc, loc, StackEntryKind::TableCell(cell.clone()));
+        let parent = gc.tags.stack.last_mut().expect("table");
+        let StackEntryKind::Table(table_ctx) = &mut parent.kind else {
+            unreachable!("expected table")
+        };
+
+        // Only repeated table headers and footer cells are layed out multiple
+        // times. Mark duplicate headers as artifacts, since they have no
+        // semantic meaning in the tag tree, which doesn't use page breaks for
+        // it's semantic structure.
+        if table_ctx.contains(cell) {
+            start_artifact(gc, loc, ArtifactKind::Other);
+        } else {
+            push_stack(gc, loc, StackEntryKind::TableCell(cell.clone()));
+        }
         return;
     } else if let Some(link) = elem.to_packed::<LinkMarker>() {
         let link_id = gc.tags.next_link_id();
