@@ -5,6 +5,7 @@ use crate::diag::SourceResult;
 use crate::engine::Engine;
 use crate::foundations::{Content, Packed, Show, StyleChain};
 use crate::introspection::Locatable;
+use crate::model::TableHeaderScope;
 
 // TODO: docs
 #[elem(Locatable, Show)]
@@ -175,17 +176,6 @@ pub enum ListNumbering {
     LowerAlpha,
     /// Uppercase letters.
     UpperAlpha,
-}
-
-/// The scope of a table header cell.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum TableHeaderScope {
-    /// The header cell refers to the row.
-    Row,
-    /// The header cell refers to the column.
-    Column,
-    /// The header cell refers to both the row and the column.
-    Both,
 }
 
 /// Mark content as a PDF artifact.

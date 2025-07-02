@@ -22,7 +22,7 @@ use typst_syntax::Span;
 use typst_utils::NonZeroExt;
 
 use crate::introspection::SplitLocator;
-use crate::model::TableCellKind;
+use crate::model::{TableCellKind, TableHeaderScope};
 
 /// Convert a grid to a cell grid.
 #[typst_macros::time(span = elem.span())]
@@ -1213,11 +1213,13 @@ impl<'x> CellGridResolver<'_, '_, 'x> {
         // a non-empty row.
         let mut first_available_row = 0;
 
-        let mut cell_kind: Smart<TableCellKind> = Smart::Auto;
+        // The cell kind is currently only used for tagged PDF.
+        let cell_kind;
 
         let (header_footer_items, simple_item) = match child {
-            ResolvableGridChild::Header { repeat, level, span, items, .. } => {
-                cell_kind = Smart::Custom(TableCellKind::Header);
+            ResolvableGridChild::Header { repeat, level, span, items } => {
+                cell_kind =
+                    Smart::Custom(TableCellKind::Header(level, TableHeaderScope::Column));
 
                 row_group_data = Some(RowGroupData {
                     range: None,
@@ -1245,7 +1247,7 @@ impl<'x> CellGridResolver<'_, '_, 'x> {
 
                 (Some(items), None)
             }
-            ResolvableGridChild::Footer { repeat, span, items, .. } => {
+            ResolvableGridChild::Footer { repeat, span, items } => {
                 if footer.is_some() {
                     bail!(span, "cannot have more than one footer");
                 }
@@ -1270,6 +1272,8 @@ impl<'x> CellGridResolver<'_, '_, 'x> {
                 (Some(items), None)
             }
             ResolvableGridChild::Item(item) => {
+                cell_kind = Smart::Custom(TableCellKind::Data);
+
                 if matches!(item, ResolvableGridItem::Cell(_)) {
                     *at_least_one_cell = true;
                 }
@@ -1556,8 +1560,11 @@ impl<'x> CellGridResolver<'_, '_, 'x> {
                     // Cells themselves, unfortunately, still have to.
                     assert!(resolved_cells[*local_auto_index].is_none());
                     let kind = match row_group.kind {
-                        RowGroupKind::Header => TableCellKind::Header,
-                        RowGroupKind::Footer => TableCellKind::Header,
+                        RowGroupKind::Header => TableCellKind::Header(
+                            NonZeroU32::ONE,
+                            TableHeaderScope::default(),
+                        ),
+                        RowGroupKind::Footer => TableCellKind::Footer,
                     };
                     resolved_cells[*local_auto_index] =
                         Some(Entry::Cell(self.resolve_cell(
@@ -1691,8 +1698,6 @@ impl<'x> CellGridResolver<'_, '_, 'x> {
                         y,
                         1,
                         Span::detached(),
-                        // FIXME: empty cells will within header and footer rows
-                        // will prevent row group tags.
                         Smart::Auto,
                     )?))
                 }

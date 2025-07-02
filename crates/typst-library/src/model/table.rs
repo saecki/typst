@@ -8,8 +8,8 @@ use typst_utils::NonZeroExt;
 use crate::diag::{bail, HintedStrResult, HintedString, SourceResult};
 use crate::engine::Engine;
 use crate::foundations::{
-    cast, elem, scope, Content, NativeElement, Packed, Show, Smart, StyleChain,
-    TargetElem,
+    cast, dict, elem, scope, Content, Dict, NativeElement, Packed, Show, Smart,
+    StyleChain, TargetElem,
 };
 use crate::html::{attr, tag, HtmlAttrs, HtmlElem, HtmlTag};
 use crate::introspection::{Locatable, Locator};
@@ -814,9 +814,6 @@ pub struct TableCell {
     // TODO: feature gate
     pub kind: Smart<TableCellKind>,
 
-    // TODO: feature gate
-    pub header_scope: Smart<TableHeaderScope>,
-
     /// Whether rows spanned by this cell can be placed in different pages.
     /// When equal to `{auto}`, a cell spanning only fixed-size rows is
     /// unbreakable, while a cell spanning at least one `{auto}`-sized row is
@@ -855,17 +852,64 @@ impl From<Content> for TableCell {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Cast)]
-pub enum TableHeaderScope {
-    Both,
-    Column,
-    Row,
-}
-
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Cast)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum TableCellKind {
-    Header,
+    Header(NonZeroU32, TableHeaderScope),
     Footer,
     #[default]
     Data,
+}
+
+cast! {
+    TableCellKind,
+    self => match self {
+        Self::Header(level, scope) => dict! { "level" => level, "scope" => scope }.into_value(),
+        Self::Footer => "footer".into_value(),
+        Self::Data => "data".into_value(),
+    },
+    "header" => Self::Header(NonZeroU32::ONE, TableHeaderScope::default()),
+    "footer" => Self::Footer,
+    "data" => Self::Data,
+    mut dict: Dict => {
+        // TODO: have a `pdf.header` function instead?
+        #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Cast)]
+        enum HeaderKind {
+            Header,
+        }
+        dict.take("kind")?.cast::<HeaderKind>()?;
+        let level = dict.take("level").ok().map(|v| v.cast()).transpose()?;
+        let scope = dict.take("scope").ok().map(|v| v.cast()).transpose()?;
+        dict.finish(&["kind", "level", "scope"])?;
+        Self::Header(level.unwrap_or(NonZeroU32::ONE), scope.unwrap_or_default())
+    },
+}
+
+/// The scope of a table header cell.
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Cast)]
+pub enum TableHeaderScope {
+    /// The header cell refers to both the row and the column.
+    Both,
+    /// The header cell refers to the column.
+    #[default]
+    Column,
+    /// The header cell refers to the row.
+    Row,
+}
+
+impl TableHeaderScope {
+    pub fn refers_to_column(&self) -> bool {
+        match self {
+            TableHeaderScope::Both => true,
+            TableHeaderScope::Column => true,
+            TableHeaderScope::Row => false,
+        }
+    }
+
+    pub fn refers_to_row(&self) -> bool {
+        match self {
+            TableHeaderScope::Both => true,
+            TableHeaderScope::Column => false,
+            TableHeaderScope::Row => true,
+        }
+    }
 }
