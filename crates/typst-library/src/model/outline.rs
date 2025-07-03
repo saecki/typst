@@ -311,7 +311,7 @@ impl LocalName for Packed<OutlineElem> {
     const KEY: &'static str = "outline";
 }
 
-/// Only used to mark
+/// Only used to delimit the outline in tagged PDF.
 #[elem(Locatable, Show)]
 pub struct OutlineBody {
     #[required]
