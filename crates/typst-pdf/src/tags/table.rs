@@ -318,7 +318,7 @@ fn table_cell_id(table_id: TableId, x: u32, y: u32) -> TagId {
     bytes[0..4].copy_from_slice(&table_id.0.to_ne_bytes());
     bytes[4..8].copy_from_slice(&x.to_ne_bytes());
     bytes[8..12].copy_from_slice(&y.to_ne_bytes());
-    TagId::from_bytes(&bytes)
+    TagId::from_slice(&bytes)
 }
 
 fn table_header_scope(scope: TableHeaderScope) -> krilla::tagging::TableHeaderScope {
