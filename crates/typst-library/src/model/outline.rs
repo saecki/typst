@@ -2,7 +2,7 @@ use std::num::NonZeroUsize;
 use std::str::FromStr;
 
 use comemo::{Track, Tracked};
-use ecow::eco_format;
+use ecow::{eco_format, EcoString};
 use smallvec::SmallVec;
 use typst_syntax::Span;
 use typst_utils::{Get, NonZeroExt};
@@ -23,7 +23,7 @@ use crate::layout::{
 };
 use crate::math::EquationElem;
 use crate::model::{Destination, HeadingElem, NumberingPattern, ParElem, Refable};
-use crate::text::{LocalName, SpaceElem, TextElem};
+use crate::text::{LocalName, SmartQuoteElem, SmartQuotes, SpaceElem, TextElem};
 
 /// A table of contents, figures, or other elements.
 ///
@@ -435,18 +435,11 @@ impl Show for Packed<OutlineEntry> {
         let context = Context::new(None, Some(styles));
         let context = context.track();
 
-        // TODO: prefix should be wrapped in a `Lbl` structure element
+        // TODO(accessibility): prefix should be wrapped in a `Lbl` structure element
         let prefix = self.prefix(engine, context, span)?;
         let body = self.body().at(span)?;
         let page = self.page(engine, context, span)?;
-        let alt = {
-            // TODO: accept user supplied alt text
-            let prefix = prefix.as_ref().map(|p| p.plain_text()).unwrap_or_default();
-            let body = body.plain_text();
-            let page_str = PageElem::local_name_in(styles);
-            let page_nr = page.plain_text();
-            eco_format!("{prefix} \"{body}\", {page_str} {page_nr}")
-        };
+        let alt = alt_text(styles, &prefix, &body, &page);
         let inner = self.inner(context, span, body, page)?;
         let block = if self.element.is::<EquationElem>() {
             let body = prefix.unwrap_or_default() + inner;
@@ -702,6 +695,27 @@ impl OutlineEntry {
 cast! {
     OutlineEntry,
     v: Content => v.unpack::<Self>().map_err(|_| "expected outline entry")?
+}
+
+fn alt_text(
+    styles: StyleChain,
+    prefix: &Option<Content>,
+    body: &Content,
+    page: &Content,
+) -> EcoString {
+    let prefix = prefix.as_ref().map(|p| p.plain_text()).unwrap_or_default();
+    let body = body.plain_text();
+    let page_str = PageElem::local_name_in(styles);
+    let page_nr = page.plain_text();
+    let quotes = SmartQuotes::get(
+        SmartQuoteElem::quotes_in(styles),
+        TextElem::lang_in(styles),
+        TextElem::region_in(styles),
+        SmartQuoteElem::alternative_in(styles),
+    );
+    let open = quotes.double_open;
+    let close = quotes.double_close;
+    eco_format!("{prefix} {open}{body}{close} {page_str} {page_nr}",)
 }
 
 /// Measures the width of a prefix.
