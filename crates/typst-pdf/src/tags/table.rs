@@ -159,8 +159,8 @@ impl TableCtx {
                 .filter_map(|cell| {
                     let cell = cell.into_cell()?;
                     let span = TableCellSpan {
-                        rows: cell.rowspan.try_into().unwrap(),
-                        cols: cell.colspan.try_into().unwrap(),
+                        rows: cell.rowspan.try_into().unwrap_or(NonZeroU32::MAX),
+                        cols: cell.colspan.try_into().unwrap_or(NonZeroU32::MAX),
                     };
                     let tag = match cell.unwrap_kind() {
                         TableCellKind::Header(_, scope) => {

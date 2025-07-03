@@ -2,12 +2,14 @@ use std::cell::OnceCell;
 use std::num::NonZeroU32;
 
 use ecow::EcoString;
+use krilla::configure::Validator;
 use krilla::page::Page;
 use krilla::surface::Surface;
 use krilla::tagging::{
-    ArtifactType, ContentTag, Identifier, Node, SpanTag, Tag, TagBuilder, TagGroup,
-    TagKind, TagTree,
+    ArtifactType, ContentTag, Identifier, Node, SpanTag, TableDataCell, Tag, TagBuilder,
+    TagGroup, TagKind, TagTree,
 };
+use typst_library::diag::SourceResult;
 use typst_library::foundations::{Content, LinkMarker, Packed, StyleChain};
 use typst_library::introspection::Location;
 use typst_library::layout::RepeatElem;
@@ -26,21 +28,21 @@ use crate::tags::table::TableCtx;
 mod outline;
 mod table;
 
-pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) {
+pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) -> SourceResult<()> {
     if gc.tags.in_artifact.is_some() {
         // Don't nest artifacts
-        return;
+        return Ok(());
     }
 
-    let loc = elem.location().unwrap();
+    let loc = elem.location().expect("elem to be locatable");
 
     if let Some(artifact) = elem.to_packed::<ArtifactElem>() {
         let kind = artifact.kind(StyleChain::default());
         start_artifact(gc, loc, kind);
-        return;
+        return Ok(());
     } else if let Some(_) = elem.to_packed::<RepeatElem>() {
         start_artifact(gc, loc, ArtifactKind::Other);
-        return;
+        return Ok(());
     }
 
     let tag: Tag = if let Some(pdf_tag) = elem.to_packed::<PdfTagElem>() {
@@ -54,11 +56,11 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) {
         let name = heading.body.plain_text().to_string();
         TagKind::Hn(level, Some(name)).into()
     } else if let Some(_) = elem.to_packed::<OutlineBody>() {
-        push_stack(gc, loc, StackEntryKind::Outline(OutlineCtx::new()));
-        return;
+        push_stack(gc, loc, StackEntryKind::Outline(OutlineCtx::new()))?;
+        return Ok(());
     } else if let Some(entry) = elem.to_packed::<OutlineEntry>() {
-        push_stack(gc, loc, StackEntryKind::OutlineEntry(entry.clone()));
-        return;
+        push_stack(gc, loc, StackEntryKind::OutlineEntry(entry.clone()))?;
+        return Ok(());
     } else if let Some(_) = elem.to_packed::<FigureElem>() {
         let alt = None; // TODO
         TagKind::Figure.with_alt_text(alt)
@@ -73,7 +75,7 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) {
             if figure_tag.alt_text.is_none() {
                 figure_tag.alt_text = alt;
             }
-            return;
+            return Ok(());
         } else {
             TagKind::Figure.with_alt_text(alt)
         }
@@ -82,19 +84,16 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) {
     } else if let Some(table) = elem.to_packed::<TableElem>() {
         let table_id = gc.tags.next_table_id();
         let ctx = TableCtx::new(table_id, table.clone());
-        push_stack(gc, loc, StackEntryKind::Table(ctx));
-        return;
+        push_stack(gc, loc, StackEntryKind::Table(ctx))?;
+        return Ok(());
     } else if let Some(cell) = elem.to_packed::<TableCell>() {
-        let parent = gc.tags.stack.last_mut().expect("table");
-        let StackEntryKind::Table(table_ctx) = &mut parent.kind else {
-            unreachable!("expected table")
-        };
+        let table_ctx = gc.tags.parent_table();
 
         // Only repeated table headers and footer cells are layed out multiple
         // times. Mark duplicate headers as artifacts, since they have no
         // semantic meaning in the tag tree, which doesn't use page breaks for
         // it's semantic structure.
-        if table_ctx.contains(cell) {
+        if table_ctx.is_some_and(|ctx| ctx.contains(cell)) {
             // TODO: currently the first layouted cell is picked to be part of
             // the tag tree, for repeating footers this will be the cell on the
             // first page. Maybe it should be the cell on the last page, but that
@@ -102,26 +101,38 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) {
             // on the frames to figure out if there are other footers following.
             start_artifact(gc, loc, ArtifactKind::Other);
         } else {
-            push_stack(gc, loc, StackEntryKind::TableCell(cell.clone()));
+            push_stack(gc, loc, StackEntryKind::TableCell(cell.clone()))?;
         }
-        return;
+        return Ok(());
     } else if let Some(link) = elem.to_packed::<LinkMarker>() {
         let link_id = gc.tags.next_link_id();
-        push_stack(gc, loc, StackEntryKind::Link(link_id, link.clone()));
-        return;
+        push_stack(gc, loc, StackEntryKind::Link(link_id, link.clone()))?;
+        return Ok(());
     } else {
-        return;
+        return Ok(());
     };
 
-    push_stack(gc, loc, StackEntryKind::Standard(tag));
+    push_stack(gc, loc, StackEntryKind::Standard(tag))?;
+
+    Ok(())
 }
 
-fn push_stack(gc: &mut GlobalContext, loc: Location, kind: StackEntryKind) {
+fn push_stack(
+    gc: &mut GlobalContext,
+    loc: Location,
+    kind: StackEntryKind,
+) -> SourceResult<()> {
     if !gc.tags.context_supports(&kind) {
-        // TODO: error or warning?
+        if gc.options.standards.config.validator() == Validator::UA1 {
+            // TODO: error
+        } else {
+            // TODO: warning
+        }
     }
 
     gc.tags.stack.push(StackEntry { loc, kind, nodes: Vec::new() });
+
+    Ok(())
 }
 
 pub(crate) fn handle_end(gc: &mut GlobalContext, loc: Location) {
@@ -143,13 +154,20 @@ pub(crate) fn handle_end(gc: &mut GlobalContext, loc: Location) {
             TagNode::Group(TagKind::TOC.into(), nodes)
         }
         StackEntryKind::OutlineEntry(outline_entry) => {
-            let parent = gc.tags.stack.last_mut().expect("outline");
-            let StackEntryKind::Outline(outline_ctx) = &mut parent.kind else {
-                unreachable!("expected outline")
+            let parent = gc.tags.stack.last_mut().and_then(|parent| {
+                let ctx = parent.kind.as_outline_mut()?;
+                Some((&mut parent.nodes, ctx))
+            });
+            let Some((parent_nodes, outline_ctx)) = parent else {
+                // PDF/UA compliance of the structure hierarchy is checked
+                // elsewhere. While this doesn't make a lot of sense, just
+                // avoid crashing here.
+                let tag = TagKind::TOCI.into();
+                gc.tags.push(TagNode::Group(tag, entry.nodes));
+                return;
             };
 
-            outline_ctx.insert(&mut parent.nodes, outline_entry, entry.nodes);
-
+            outline_ctx.insert(parent_nodes, outline_entry, entry.nodes);
             return;
         }
         StackEntryKind::Table(ctx) => {
@@ -158,13 +176,16 @@ pub(crate) fn handle_end(gc: &mut GlobalContext, loc: Location) {
             TagNode::Group(TagKind::Table(summary).into(), nodes)
         }
         StackEntryKind::TableCell(cell) => {
-            let parent = gc.tags.stack.last_mut().expect("table");
-            let StackEntryKind::Table(table_ctx) = &mut parent.kind else {
-                unreachable!("expected table")
+            let Some(table_ctx) = gc.tags.parent_table() else {
+                // PDF/UA compliance of the structure hierarchy is checked
+                // elsewhere. While this doesn't make a lot of sense, just
+                // avoid crashing here.
+                let tag = TagKind::TD(TableDataCell::new()).into();
+                gc.tags.push(TagNode::Group(tag, entry.nodes));
+                return;
             };
 
             table_ctx.insert(cell, entry.nodes);
-
             return;
         }
         StackEntryKind::Link(_, link) => {
@@ -248,10 +269,16 @@ impl Tags {
             .expect("initialized placeholder node")
     }
 
-    /// Returns the current parent's list of children and the structure type ([Tag]).
-    /// In case of the document root the structure type will be `None`.
     pub(crate) fn parent(&mut self) -> Option<&mut StackEntryKind> {
         self.stack.last_mut().map(|e| &mut e.kind)
+    }
+
+    pub(crate) fn parent_table(&mut self) -> Option<&mut TableCtx> {
+        self.parent()?.as_table_mut()
+    }
+
+    pub(crate) fn find_parent_link(&self) -> Option<(LinkId, &Packed<LinkMarker>)> {
+        self.stack.iter().rev().find_map(|entry| entry.kind.as_link())
     }
 
     pub(crate) fn push(&mut self, node: TagNode) {
@@ -326,6 +353,30 @@ impl StackEntryKind {
     pub(crate) fn as_standard_mut(&mut self) -> Option<&mut Tag> {
         if let Self::Standard(v) = self {
             Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn as_outline_mut(&mut self) -> Option<&mut OutlineCtx> {
+        if let Self::Outline(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn as_table_mut(&mut self) -> Option<&mut TableCtx> {
+        if let Self::Table(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn as_link(&self) -> Option<(LinkId, &Packed<LinkMarker>)> {
+        if let Self::Link(id, link) = self {
+            Some((*id, link))
         } else {
             None
         }

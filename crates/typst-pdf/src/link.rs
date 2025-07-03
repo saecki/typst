@@ -8,7 +8,7 @@ use typst_library::layout::{Abs, Point, Position, Size};
 use typst_library::model::Destination;
 
 use crate::convert::{FrameContext, GlobalContext};
-use crate::tags::{self, Placeholder, StackEntryKind, TagNode};
+use crate::tags::{self, Placeholder, TagNode};
 use crate::util::{AbsExt, PointExt};
 
 pub(crate) struct LinkAnnotation {
@@ -49,8 +49,7 @@ pub(crate) fn handle_link(
         }
     };
 
-    let entry = gc.tags.stack.last_mut().expect("a link parent");
-    let StackEntryKind::Link(link_id, ref link) = entry.kind else {
+    let Some((link_id, link)) = gc.tags.find_parent_link() else {
         unreachable!("expected a link parent")
     };
     let alt = link.alt.as_ref().map(EcoString::to_string);
