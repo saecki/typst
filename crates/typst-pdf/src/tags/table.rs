@@ -245,7 +245,7 @@ impl TableCtx {
 
         if let TableCellKind::Header(level, scope) = cell.unwrap_kind() {
             if refers_to_dir(&scope) {
-                let tag_id = table_cell_id(table_id, x as u32, y as u32);
+                let tag_id = table_cell_id(table_id, cell.x, cell.y);
                 *current_header = Some((level, tag_id));
             }
         }
