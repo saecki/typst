@@ -1,8 +1,7 @@
 use std::num::{NonZeroU32, NonZeroUsize};
 
 use krilla::tagging::{
-    TableCellHeaders, TableCellSpan, TableDataCell, TableHeaderCell, TagBuilder, TagId,
-    TagKind,
+    TableCellSpan, TableDataCell, TableHeaderCell, TagBuilder, TagId, TagIdRefs, TagKind,
 };
 use typst_library::foundations::{Packed, Smart, StyleChain};
 use typst_library::model::{TableCell, TableCellKind, TableElem, TableHeaderScope};
@@ -84,7 +83,7 @@ impl TableCtx {
             rowspan,
             colspan,
             kind,
-            headers: TableCellHeaders::NONE,
+            headers: TagIdRefs::NONE,
             nodes,
         });
     }
@@ -294,7 +293,7 @@ struct TableCtxCell {
     rowspan: NonZeroUsize,
     colspan: NonZeroUsize,
     kind: Smart<TableCellKind>,
-    headers: TableCellHeaders,
+    headers: TagIdRefs,
     nodes: Vec<TagNode>,
 }
 

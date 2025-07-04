@@ -598,7 +598,7 @@ fn convert_error(
             let span = to_span(*loc);
             error!(span, "{prefix} duplicate tag id")
         }
-        ValidationError::UnknownHeaderTagId(_id, loc) => {
+        ValidationError::UnknownTagId(_id, loc) => {
             // TODO: display the id and better error message
             let span = to_span(*loc);
             error!(span, "{prefix} unknown header tag id")
