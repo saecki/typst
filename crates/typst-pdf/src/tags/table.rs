@@ -1,8 +1,10 @@
+use std::io::Write as _;
 use std::num::{NonZeroU32, NonZeroUsize};
 
 use krilla::tagging::{
     TableCellSpan, TableDataCell, TableHeaderCell, TagBuilder, TagId, TagIdRefs, TagKind,
 };
+use smallvec::SmallVec;
 use typst_library::foundations::{Packed, Smart, StyleChain};
 use typst_library::model::{TableCell, TableCellKind, TableElem, TableHeaderScope};
 
@@ -313,11 +315,9 @@ fn should_group_rows(a: TableCellKind, b: TableCellKind) -> bool {
 }
 
 fn table_cell_id(table_id: TableId, x: u32, y: u32) -> TagId {
-    let mut bytes = [0; 12];
-    bytes[0..4].copy_from_slice(&table_id.0.to_ne_bytes());
-    bytes[4..8].copy_from_slice(&x.to_ne_bytes());
-    bytes[8..12].copy_from_slice(&y.to_ne_bytes());
-    TagId::from_slice(&bytes)
+    let mut buf = SmallVec::new();
+    _ = write!(&mut buf, "{}x{x}y{y}", table_id.0);
+    TagId::from_smallvec(buf)
 }
 
 fn table_header_scope(scope: TableHeaderScope) -> krilla::tagging::TableHeaderScope {

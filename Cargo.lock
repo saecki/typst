@@ -1367,7 +1367,7 @@ dependencies = [
 [[package]]
 name = "krilla"
 version = "0.4.0"
-source = "git+https://github.com/saecki/krilla?branch=tag-attributes#a13326781d3959896a468b79dd80741bd3ab2398"
+source = "git+https://github.com/saecki/krilla?branch=tag-attributes#2556c404d19746f9385b4a4e26e910d9e625c1db"
 dependencies = [
  "base64",
  "bumpalo",
@@ -1396,7 +1396,7 @@ dependencies = [
 [[package]]
 name = "krilla-svg"
 version = "0.1.0"
-source = "git+https://github.com/saecki/krilla?branch=tag-attributes#a13326781d3959896a468b79dd80741bd3ab2398"
+source = "git+https://github.com/saecki/krilla?branch=tag-attributes#2556c404d19746f9385b4a4e26e910d9e625c1db"
 dependencies = [
  "flate2",
  "fontdb",
@@ -3139,6 +3139,7 @@ dependencies = [
  "krilla",
  "krilla-svg",
  "serde",
+ "smallvec",
  "typst-assets",
  "typst-library",
  "typst-macros",
