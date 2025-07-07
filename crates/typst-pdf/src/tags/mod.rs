@@ -83,7 +83,8 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) -> SourceResu
         TagKind::Caption.into()
     } else if let Some(table) = elem.to_packed::<TableElem>() {
         let table_id = gc.tags.next_table_id();
-        let ctx = TableCtx::new(table_id, table.clone());
+        let summary = table.summary(StyleChain::default()).map(EcoString::into);
+        let ctx = TableCtx::new(table_id, summary);
         push_stack(gc, loc, StackEntryKind::Table(ctx))?;
         return Ok(());
     } else if let Some(cell) = elem.to_packed::<TableCell>() {
@@ -151,10 +152,7 @@ pub(crate) fn handle_end(gc: &mut GlobalContext, loc: Location) {
 
     let node = match entry.kind {
         StackEntryKind::Standard(tag) => TagNode::Group(tag, entry.nodes),
-        StackEntryKind::Outline(ctx) => {
-            let nodes = ctx.build_outline(entry.nodes);
-            TagNode::Group(TagKind::TOC.into(), nodes)
-        }
+        StackEntryKind::Outline(ctx) => ctx.build_outline(entry.nodes),
         StackEntryKind::OutlineEntry(outline_entry) => {
             let parent = gc.tags.stack.last_mut().and_then(|parent| {
                 let ctx = parent.kind.as_outline_mut()?;
@@ -172,11 +170,7 @@ pub(crate) fn handle_end(gc: &mut GlobalContext, loc: Location) {
             outline_ctx.insert(parent_nodes, outline_entry, entry.nodes);
             return;
         }
-        StackEntryKind::Table(ctx) => {
-            let summary = ctx.table.summary(StyleChain::default()).map(EcoString::into);
-            let nodes = ctx.build_table(entry.nodes);
-            TagNode::Group(TagKind::Table(summary).into(), nodes)
-        }
+        StackEntryKind::Table(ctx) => ctx.build_table(entry.nodes),
         StackEntryKind::TableCell(cell) => {
             let Some(table_ctx) = gc.tags.parent_table() else {
                 // PDF/UA compliance of the structure hierarchy is checked
@@ -385,7 +379,7 @@ impl StackEntryKind {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) enum TagNode {
     Group(Tag, Vec<TagNode>),
     Leaf(Identifier),
@@ -394,7 +388,7 @@ pub(crate) enum TagNode {
     Placeholder(Placeholder),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Placeholder(usize);
 
 /// Automatically calls [`Surface::end_tagged`] when dropped.

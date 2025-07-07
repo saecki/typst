@@ -1,24 +1,25 @@
 use std::io::Write as _;
-use std::num::{NonZeroU32, NonZeroUsize};
+use std::num::NonZeroU32;
 
+use az::SaturatingAs;
 use krilla::tagging::{
     TableCellSpan, TableDataCell, TableHeaderCell, TagBuilder, TagId, TagIdRefs, TagKind,
 };
 use smallvec::SmallVec;
 use typst_library::foundations::{Packed, Smart, StyleChain};
-use typst_library::model::{TableCell, TableCellKind, TableElem, TableHeaderScope};
+use typst_library::model::{TableCell, TableCellKind, TableHeaderScope};
 
 use crate::tags::{TableId, TagNode};
 
 pub(crate) struct TableCtx {
     pub(crate) id: TableId,
-    pub(crate) table: Packed<TableElem>,
+    pub(crate) summary: Option<String>,
     rows: Vec<Vec<GridCell>>,
 }
 
 impl TableCtx {
-    pub(crate) fn new(id: TableId, table: Packed<TableElem>) -> Self {
-        Self { id, table: table.clone(), rows: Vec::new() }
+    pub(crate) fn new(id: TableId, summary: Option<String>) -> Self {
+        Self { id, summary, rows: Vec::new() }
     }
 
     fn get(&self, x: usize, y: usize) -> Option<&TableCtxCell> {
@@ -80,21 +81,21 @@ impl TableCtx {
         }
 
         self.rows[y][x] = GridCell::Cell(TableCtxCell {
-            x: x as u32,
-            y: y as u32,
-            rowspan,
-            colspan,
+            x: x.saturating_as(),
+            y: y.saturating_as(),
+            rowspan: rowspan.try_into().unwrap_or(NonZeroU32::MAX),
+            colspan: rowspan.try_into().unwrap_or(NonZeroU32::MAX),
             kind,
             headers: TagIdRefs::NONE,
             nodes,
         });
     }
 
-    pub(crate) fn build_table(mut self, mut nodes: Vec<TagNode>) -> Vec<TagNode> {
+    pub(crate) fn build_table(mut self, mut nodes: Vec<TagNode>) -> TagNode {
         // Table layouting ensures that there are no overlapping cells, and that
         // any gaps left by the user are filled with empty cells.
         if self.rows.is_empty() {
-            return nodes;
+            return TagNode::Group(TagKind::Table(self.summary).into(), nodes);
         }
         let height = self.rows.len();
         let width = self.rows[0].len();
@@ -159,10 +160,7 @@ impl TableCtx {
                 .into_iter()
                 .filter_map(|cell| {
                     let cell = cell.into_cell()?;
-                    let span = TableCellSpan {
-                        rows: cell.rowspan.try_into().unwrap_or(NonZeroU32::MAX),
-                        cols: cell.colspan.try_into().unwrap_or(NonZeroU32::MAX),
-                    };
+                    let span = TableCellSpan { rows: cell.rowspan, cols: cell.colspan };
                     let tag = match cell.unwrap_kind() {
                         TableCellKind::Header(_, scope) => {
                             let id = table_cell_id(self.id, cell.x, cell.y);
@@ -217,7 +215,7 @@ impl TableCtx {
             nodes.push(TagNode::Group(tag.into(), row_chunk));
         }
 
-        nodes
+        TagNode::Group(TagKind::Table(self.summary).into(), nodes)
     }
 
     fn resolve_cell_headers<F>(
@@ -292,8 +290,8 @@ impl GridCell {
 struct TableCtxCell {
     x: u32,
     y: u32,
-    rowspan: NonZeroUsize,
-    colspan: NonZeroUsize,
+    rowspan: NonZeroU32,
+    colspan: NonZeroU32,
     kind: Smart<TableCellKind>,
     headers: TagIdRefs,
     nodes: Vec<TagNode>,
@@ -325,5 +323,174 @@ fn table_header_scope(scope: TableHeaderScope) -> krilla::tagging::TableHeaderSc
         TableHeaderScope::Both => krilla::tagging::TableHeaderScope::Both,
         TableHeaderScope::Column => krilla::tagging::TableHeaderScope::Column,
         TableHeaderScope::Row => krilla::tagging::TableHeaderScope::Row,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+    use typst_library::foundations::Content;
+
+    use super::*;
+
+    #[track_caller]
+    fn test(table: TableCtx, exp_tag: TagNode) {
+        let tag = table.build_table(Vec::new());
+        assert_eq!(tag, exp_tag);
+    }
+
+    #[track_caller]
+    fn table<const SIZE: usize>(cells: [TableCell; SIZE]) -> TableCtx {
+        let mut table = TableCtx::new(TableId(324), Some("summary".into()));
+        for cell in cells {
+            table.insert(Packed::new(cell), Vec::new());
+        }
+
+        table
+    }
+
+    #[track_caller]
+    fn header_cell(x: usize, y: usize, level: u32, scope: TableHeaderScope) -> TableCell {
+        TableCell::new(Content::default())
+            .with_x(Smart::Custom(x))
+            .with_y(Smart::Custom(y))
+            .with_kind(Smart::Custom(TableCellKind::Header(
+                NonZeroU32::new(level).unwrap(),
+                scope,
+            )))
+    }
+
+    fn cell(x: usize, y: usize) -> TableCell {
+        TableCell::new(Content::default())
+            .with_x(Smart::Custom(x))
+            .with_y(Smart::Custom(y))
+            .with_kind(Smart::Custom(TableCellKind::Data))
+    }
+
+    fn table_tag<const SIZE: usize>(nodes: [TagNode; SIZE]) -> TagNode {
+        let tag = TagKind::Table(Some("summary".into()));
+        TagNode::Group(tag.into(), nodes.into())
+    }
+
+    fn header<const SIZE: usize>(nodes: [TagNode; SIZE]) -> TagNode {
+        TagNode::Group(TagKind::THead.into(), nodes.into())
+    }
+
+    fn body<const SIZE: usize>(nodes: [TagNode; SIZE]) -> TagNode {
+        TagNode::Group(TagKind::TBody.into(), nodes.into())
+    }
+
+    fn row<const SIZE: usize>(nodes: [TagNode; SIZE]) -> TagNode {
+        TagNode::Group(TagKind::TR.into(), nodes.into())
+    }
+
+    fn header_cell_tag<const SIZE: usize>(
+        x: u32,
+        y: u32,
+        scope: TableHeaderScope,
+        headers: [(u32, u32); SIZE],
+    ) -> TagNode {
+        let scope = table_header_scope(scope);
+        let id = table_cell_id(TableId(324), x, y);
+        let ids = headers
+            .map(|(x, y)| table_cell_id(TableId(324), x, y))
+            .into_iter()
+            .collect();
+        TagNode::Group(
+            TagKind::TH(TableHeaderCell::new(scope).with_headers(TagIdRefs { ids }))
+                .with_id(Some(id)),
+            Vec::new(),
+        )
+    }
+
+    fn cell_tag<const SIZE: usize>(headers: [(u32, u32); SIZE]) -> TagNode {
+        let ids = headers
+            .map(|(x, y)| table_cell_id(TableId(324), x, y))
+            .into_iter()
+            .collect();
+        TagNode::Group(
+            TagKind::TD(TableDataCell::new().with_headers(TagIdRefs { ids })).into(),
+            Vec::new(),
+        )
+    }
+
+    #[test]
+    fn simple_table() {
+        #[rustfmt::skip]
+        let table = table([
+            header_cell(0, 0, 1, TableHeaderScope::Column),
+            header_cell(1, 0, 1, TableHeaderScope::Column),
+            header_cell(2, 0, 1, TableHeaderScope::Column),
+
+            cell(0, 1),
+            cell(1, 1),
+            cell(2, 1),
+
+            cell(0, 2),
+            cell(1, 2),
+            cell(2, 2),
+        ]);
+
+        #[rustfmt::skip]
+        let tag = table_tag([
+            header([row([
+                header_cell_tag(0, 0, TableHeaderScope::Column, []),
+                header_cell_tag(1, 0, TableHeaderScope::Column, []),
+                header_cell_tag(2, 0, TableHeaderScope::Column, []),
+            ])]),
+            body([
+                row([
+                    cell_tag([(0, 0)]),
+                    cell_tag([(1, 0)]),
+                    cell_tag([(2, 0)]),
+                ]),
+                row([
+                    cell_tag([(0, 0)]),
+                    cell_tag([(1, 0)]),
+                    cell_tag([(2, 0)]),
+                ]),
+            ]),
+        ]);
+
+        test(table, tag);
+    }
+
+    #[test]
+    fn header_row_and_column() {
+        #[rustfmt::skip]
+        let table = table([
+            header_cell(0, 0, 1, TableHeaderScope::Column),
+            header_cell(1, 0, 1, TableHeaderScope::Column),
+            header_cell(2, 0, 1, TableHeaderScope::Column),
+
+            header_cell(0, 1, 1, TableHeaderScope::Row),
+            cell(1, 1),
+            cell(2, 1),
+
+            header_cell(0, 2, 1, TableHeaderScope::Row),
+            cell(1, 2),
+            cell(2, 2),
+        ]);
+
+        #[rustfmt::skip]
+        let tag = table_tag([
+            row([
+                header_cell_tag(0, 0, TableHeaderScope::Column, []),
+                header_cell_tag(1, 0, TableHeaderScope::Column, []),
+                header_cell_tag(2, 0, TableHeaderScope::Column, []),
+            ]),
+            row([
+                header_cell_tag(0, 1, TableHeaderScope::Row, [(0, 0)]),
+                cell_tag([(1, 0), (0, 1)]),
+                cell_tag([(2, 0), (0, 1)]),
+            ]),
+            row([
+                header_cell_tag(0, 2, TableHeaderScope::Row, [(0, 0)]),
+                cell_tag([(1, 0), (0, 2)]),
+                cell_tag([(2, 0), (0, 2)]),
+            ]),
+        ]);
+
+        test(table, tag);
     }
 }
