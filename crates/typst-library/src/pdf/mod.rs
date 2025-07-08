@@ -15,5 +15,7 @@ pub fn module() -> Module {
     pdf.define_elem::<EmbedElem>();
     pdf.define_elem::<PdfTagElem>();
     pdf.define_elem::<ArtifactElem>();
+    pdf.define_func::<header_cell>();
+    pdf.define_func::<data_cell>();
     Module::new("pdf", pdf)
 }

@@ -1,11 +1,14 @@
+use std::num::NonZeroU32;
+
 use ecow::EcoString;
-use typst_macros::{cast, elem, Cast};
+use typst_macros::{cast, elem, func, Cast};
+use typst_utils::NonZeroExt;
 
 use crate::diag::SourceResult;
 use crate::engine::Engine;
-use crate::foundations::{Content, Packed, Show, StyleChain};
+use crate::foundations::{Content, NativeElement, Packed, Show, Smart, StyleChain};
 use crate::introspection::Locatable;
-use crate::model::TableHeaderScope;
+use crate::model::TableCell;
 
 // TODO: docs
 #[elem(Locatable, Show)]
@@ -208,5 +211,70 @@ impl Show for Packed<ArtifactElem> {
     #[typst_macros::time(name = "pdf.artifact", span = self.span())]
     fn show(&self, _: &mut Engine, _: StyleChain) -> SourceResult<Content> {
         Ok(self.body.clone())
+    }
+}
+
+// TODO: feature gate
+/// Explicity define this cell as a header cell.
+#[func]
+pub fn header_cell(
+    #[named]
+    #[default(NonZeroU32::ONE)]
+    level: NonZeroU32,
+    #[named]
+    #[default]
+    scope: TableHeaderScope,
+    /// The table cell.
+    cell: TableCell,
+) -> Content {
+    cell.with_kind(Smart::Custom(TableCellKind::Header(level, scope)))
+        .pack()
+}
+
+// TODO: feature gate
+/// Explicity define this cell as a data cell.
+#[func]
+pub fn data_cell(
+    /// The table cell.
+    cell: TableCell,
+) -> Content {
+    cell.with_kind(Smart::Custom(TableCellKind::Data)).pack()
+}
+
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum TableCellKind {
+    Header(NonZeroU32, TableHeaderScope),
+    Footer,
+    #[default]
+    Data,
+}
+
+/// The scope of a table header cell.
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Cast)]
+pub enum TableHeaderScope {
+    /// The header cell refers to both the row and the column.
+    Both,
+    /// The header cell refers to the column.
+    #[default]
+    Column,
+    /// The header cell refers to the row.
+    Row,
+}
+
+impl TableHeaderScope {
+    pub fn refers_to_column(&self) -> bool {
+        match self {
+            TableHeaderScope::Both => true,
+            TableHeaderScope::Column => true,
+            TableHeaderScope::Row => false,
+        }
+    }
+
+    pub fn refers_to_row(&self) -> bool {
+        match self {
+            TableHeaderScope::Both => true,
+            TableHeaderScope::Column => false,
+            TableHeaderScope::Row => true,
+        }
     }
 }

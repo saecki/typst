@@ -181,7 +181,7 @@ pub(crate) fn handle_end(gc: &mut GlobalContext, loc: Location) {
                 return;
             };
 
-            table_ctx.insert(cell, entry.nodes);
+            table_ctx.insert(&cell, entry.nodes);
             return;
         }
         StackEntryKind::Link(_, link) => {

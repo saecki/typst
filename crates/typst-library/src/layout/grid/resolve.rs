@@ -22,7 +22,7 @@ use typst_syntax::Span;
 use typst_utils::NonZeroExt;
 
 use crate::introspection::SplitLocator;
-use crate::model::{TableCellKind, TableHeaderScope};
+use crate::pdf::{TableCellKind, TableHeaderScope};
 
 /// Convert a grid to a cell grid.
 #[typst_macros::time(span = elem.span())]
@@ -226,7 +226,7 @@ impl ResolvableCell for Packed<TableCell> {
         let breakable = cell.breakable(styles).unwrap_or(breakable);
         let fill = cell.fill(styles).unwrap_or_else(|| fill.clone());
 
-        let kind = cell.kind(styles).or(kind);
+        let kind = cell.kind().copied().unwrap_or_default().or(kind);
 
         let cell_stroke = cell.stroke(styles);
         let stroke_overridden =

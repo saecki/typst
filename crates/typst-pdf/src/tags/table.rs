@@ -7,7 +7,8 @@ use krilla::tagging::{
 };
 use smallvec::SmallVec;
 use typst_library::foundations::{Packed, Smart, StyleChain};
-use typst_library::model::{TableCell, TableCellKind, TableHeaderScope};
+use typst_library::model::TableCell;
+use typst_library::pdf::{TableCellKind, TableHeaderScope};
 
 use crate::tags::{TableId, TagNode};
 
@@ -54,12 +55,12 @@ impl TableCtx {
         }
     }
 
-    pub(crate) fn insert(&mut self, cell: Packed<TableCell>, nodes: Vec<TagNode>) {
+    pub(crate) fn insert(&mut self, cell: &TableCell, nodes: Vec<TagNode>) {
         let x = cell.x(StyleChain::default()).unwrap_or_else(|| unreachable!());
         let y = cell.y(StyleChain::default()).unwrap_or_else(|| unreachable!());
         let rowspan = cell.rowspan(StyleChain::default());
         let colspan = cell.colspan(StyleChain::default());
-        let kind = cell.kind(StyleChain::default());
+        let kind = cell.kind().copied().expect("kind to be set after layouting");
 
         // Extend the table grid to fit this cell.
         let required_height = y + rowspan.get();
@@ -344,7 +345,7 @@ mod tests {
     fn table<const SIZE: usize>(cells: [TableCell; SIZE]) -> TableCtx {
         let mut table = TableCtx::new(TableId(324), Some("summary".into()));
         for cell in cells {
-            table.insert(Packed::new(cell), Vec::new());
+            table.insert(&cell, Vec::new());
         }
         table
     }
