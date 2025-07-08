@@ -84,7 +84,7 @@ impl TableCtx {
             x: x.saturating_as(),
             y: y.saturating_as(),
             rowspan: rowspan.try_into().unwrap_or(NonZeroU32::MAX),
-            colspan: rowspan.try_into().unwrap_or(NonZeroU32::MAX),
+            colspan: colspan.try_into().unwrap_or(NonZeroU32::MAX),
             kind,
             headers: TagIdRefs::NONE,
             nodes,
