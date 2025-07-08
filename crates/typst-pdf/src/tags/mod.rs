@@ -10,7 +10,10 @@ use krilla::tagging::{
     TagGroup, TagKind, TagTree,
 };
 use typst_library::diag::SourceResult;
-use typst_library::foundations::{Content, LinkMarker, Packed, StyleChain};
+use typst_library::foundations::{
+    Content, LinkMarker, NativeElement, Packed, RefableProperty, Settable,
+    SettableProperty, StyleChain,
+};
 use typst_library::introspection::Location;
 use typst_library::layout::RepeatElem;
 use typst_library::model::{
@@ -37,7 +40,7 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) -> SourceResu
     let loc = elem.location().expect("elem to be locatable");
 
     if let Some(artifact) = elem.to_packed::<ArtifactElem>() {
-        let kind = artifact.kind(StyleChain::default());
+        let kind = artifact.kind.get(StyleChain::default());
         start_artifact(gc, loc, kind);
         return Ok(());
     } else if let Some(_) = elem.to_packed::<RepeatElem>() {
@@ -46,7 +49,7 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) -> SourceResu
     }
 
     let tag: Tag = if let Some(pdf_tag) = elem.to_packed::<PdfTagElem>() {
-        let kind = pdf_tag.kind(StyleChain::default());
+        let kind = pdf_tag.kind.get_ref(StyleChain::default());
         match kind {
             PdfTagKind::Part => TagKind::Part.into(),
             _ => todo!(),
@@ -65,7 +68,7 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) -> SourceResu
         let alt = None; // TODO
         TagKind::Figure.with_alt_text(alt)
     } else if let Some(image) = elem.to_packed::<ImageElem>() {
-        let alt = image.alt(StyleChain::default()).map(|s| s.to_string());
+        let alt = image.alt.get_as_ref().map(|s| s.to_string());
 
         let figure_tag = (gc.tags.parent())
             .and_then(StackEntryKind::as_standard_mut)
@@ -83,7 +86,7 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) -> SourceResu
         TagKind::Caption.into()
     } else if let Some(table) = elem.to_packed::<TableElem>() {
         let table_id = gc.tags.next_table_id();
-        let summary = table.summary(StyleChain::default()).map(EcoString::into);
+        let summary = table.summary.get_as_ref().map(|s| s.to_string());
         let ctx = TableCtx::new(table_id, summary);
         push_stack(gc, loc, StackEntryKind::Table(ctx))?;
         return Ok(());
@@ -457,5 +460,20 @@ fn artifact_type(kind: ArtifactKind) -> ArtifactType {
         ArtifactKind::Footer => ArtifactType::Footer,
         ArtifactKind::Page => ArtifactType::Page,
         ArtifactKind::Other => ArtifactType::Other,
+    }
+}
+
+trait PropertyGetAsRef<E, T, const I: u8> {
+    fn get_as_ref(&self) -> Option<&T>;
+}
+
+impl<E, T, const I: u8> PropertyGetAsRef<E, T, I> for Settable<E, I>
+where
+    E: NativeElement,
+    E: SettableProperty<I, Type = Option<T>>,
+    E: RefableProperty<I>,
+{
+    fn get_as_ref(&self) -> Option<&T> {
+        self.get_ref(StyleChain::default()).as_ref()
     }
 }

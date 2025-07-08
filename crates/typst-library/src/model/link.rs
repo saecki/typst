@@ -111,7 +111,7 @@ impl Show for Packed<LinkElem> {
     fn show(&self, engine: &mut Engine, styles: StyleChain) -> SourceResult<Content> {
         let body = self.body.clone();
 
-        Ok(if TargetElem::target_in(styles).is_html() {
+        Ok(if styles.get(TargetElem::target).is_html() {
             if let LinkTarget::Dest(Destination::Url(url)) = &self.dest {
                 HtmlElem::new(tag::a)
                     .with_attr(attr::href, url.clone().into_inner())
@@ -126,7 +126,7 @@ impl Show for Packed<LinkElem> {
                 body
             }
         } else {
-            let alt = self.alt(styles);
+            let alt = self.alt.get_cloned(styles);
             match &self.dest {
                 LinkTarget::Dest(dest) => body.linked(dest.clone(), alt),
                 LinkTarget::Label(label) => {
@@ -142,7 +142,7 @@ impl Show for Packed<LinkElem> {
 impl ShowSet for Packed<LinkElem> {
     fn show_set(&self, _: StyleChain) -> Styles {
         let mut out = Styles::new();
-        out.set(TextElem::set_hyphenate(Smart::Custom(false)));
+        out.set(TextElem::hyphenate, Smart::Custom(false));
         out
     }
 }

@@ -184,8 +184,7 @@ pub struct OutlineElem {
     ///   caption: [Experiment results],
     /// )
     /// ```
-    #[default(LocatableSelector(HeadingElem::elem().select()))]
-    #[borrowed]
+    #[default(LocatableSelector(HeadingElem::ELEM.select()))]
     pub target: LocatableSelector,
 
     /// The maximum level up to which elements are included in the outline. When
@@ -258,7 +257,7 @@ impl Show for Packed<OutlineElem> {
 
         // Build the outline title.
         let mut seq = vec![];
-        if let Some(title) = self.title(styles).unwrap_or_else(|| {
+        if let Some(title) = self.title.get_cloned(styles).unwrap_or_else(|| {
             Some(TextElem::packed(Self::local_name_in(styles)).spanned(span))
         }) {
             seq.push(
@@ -269,8 +268,8 @@ impl Show for Packed<OutlineElem> {
             );
         }
 
-        let elems = engine.introspector.query(&self.target(styles).0);
-        let depth = self.depth(styles).unwrap_or(NonZeroUsize::MAX);
+        let elems = engine.introspector.query(&self.target.get_ref(styles).0);
+        let depth = self.depth.get(styles).unwrap_or(NonZeroUsize::MAX);
 
         // Build the outline entries.
         let mut entries = vec![];
@@ -296,13 +295,13 @@ impl Show for Packed<OutlineElem> {
 impl ShowSet for Packed<OutlineElem> {
     fn show_set(&self, styles: StyleChain) -> Styles {
         let mut out = Styles::new();
-        out.set(HeadingElem::set_outlined(false));
-        out.set(HeadingElem::set_numbering(None));
-        out.set(ParElem::set_justify(false));
-        out.set(BlockElem::set_above(Smart::Custom(ParElem::leading_in(styles).into())));
+        out.set(HeadingElem::outlined, false);
+        out.set(HeadingElem::numbering, None);
+        out.set(ParElem::justify, false);
+        out.set(BlockElem::above, Smart::Custom(styles.get(ParElem::leading).into()));
         // Makes the outline itself available to its entries. Should be
         // superseded by a proper ancestry mechanism in the future.
-        out.set(OutlineEntry::set_parent(Some(self.clone())));
+        out.set(OutlineEntry::parent, Some(self.clone()));
         out
     }
 }
@@ -413,7 +412,6 @@ pub struct OutlineEntry {
     ///
     /// = A New Beginning
     /// ```
-    #[borrowed]
     #[default(Some(
         RepeatElem::new(TextElem::packed("."))
             .with_gap(Em::new(0.15).into())
@@ -494,7 +492,9 @@ impl OutlineEntry {
         gap: Length,
     ) -> SourceResult<Content> {
         let styles = context.styles().at(span)?;
-        let outline = Self::parent_in(styles)
+        let outline = styles
+            .get_ref(Self::parent)
+            .as_ref()
             .ok_or("must be called within the context of an outline")
             .at(span)?;
         let outline_loc = outline.location().unwrap();
@@ -505,7 +505,7 @@ impl OutlineEntry {
             .transpose()?;
         let prefix_inset = prefix_width.map(|w| w + gap.resolve(styles));
 
-        let indent = outline.indent(styles);
+        let indent = outline.indent.get_ref(styles);
         let (base_indent, hanging_indent) = match &indent {
             Smart::Auto => compute_auto_indents(
                 engine.introspector,
@@ -549,7 +549,7 @@ impl OutlineEntry {
         };
 
         let inset = Sides::default().with(
-            TextElem::dir_in(styles).start(),
+            styles.resolve(TextElem::dir).start(),
             Some(base_indent + Rel::from(hanging_indent.unwrap_or_default())),
         );
 
@@ -605,7 +605,7 @@ impl OutlineEntry {
         // See also:
         // - https://github.com/typst/typst/issues/4476
         // - https://github.com/typst/typst/issues/5176
-        let rtl = TextElem::dir_in(styles) == Dir::RTL;
+        let rtl = styles.resolve(TextElem::dir) == Dir::RTL;
         if rtl {
             // "Right-to-Left Embedding"
             seq.push(TextElem::packed("\u{202B}"));
@@ -619,11 +619,11 @@ impl OutlineEntry {
         }
 
         // Add the filler between the section name and page number.
-        if let Some(filler) = self.fill(styles) {
+        if let Some(filler) = self.fill.get_cloned(styles) {
             seq.push(SpaceElem::shared().clone());
             seq.push(
                 BoxElem::new()
-                    .with_body(Some(filler.clone()))
+                    .with_body(Some(filler))
                     .with_width(Fr::one().into())
                     .pack()
                     .spanned(span),
@@ -708,10 +708,10 @@ fn alt_text(
     let page_str = PageElem::local_name_in(styles);
     let page_nr = page.plain_text();
     let quotes = SmartQuotes::get(
-        SmartQuoteElem::quotes_in(styles),
-        TextElem::lang_in(styles),
-        TextElem::region_in(styles),
-        SmartQuoteElem::alternative_in(styles),
+        styles.get_ref(SmartQuoteElem::quotes),
+        styles.get(TextElem::lang),
+        styles.get(TextElem::region),
+        styles.get(SmartQuoteElem::alternative),
     );
     let open = quotes.double_open;
     let close = quotes.double_close;
@@ -761,7 +761,7 @@ fn query_prefix_widths(
     outline_loc: Location,
 ) -> SmallVec<[Option<Abs>; 4]> {
     let mut widths = SmallVec::<[Option<Abs>; 4]>::new();
-    let elems = introspector.query(&select_where!(PrefixInfo, Key => outline_loc));
+    let elems = introspector.query(&select_where!(PrefixInfo, key => outline_loc));
     for elem in &elems {
         let info = elem.to_packed::<PrefixInfo>().unwrap();
         let level = info.level.get();

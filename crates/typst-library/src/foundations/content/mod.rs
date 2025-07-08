@@ -1,23 +1,33 @@
-use std::any::TypeId;
+mod element;
+mod field;
+mod packed;
+mod raw;
+mod vtable;
+
+pub use self::element::*;
+pub use self::field::*;
+pub use self::packed::Packed;
+pub use self::vtable::{ContentVtable, FieldVtable};
+#[doc(inline)]
+pub use typst_macros::elem;
+
 use std::fmt::{self, Debug, Formatter};
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::iter::{self, Sum};
-use std::marker::PhantomData;
-use std::ops::{Add, AddAssign, ControlFlow, Deref, DerefMut};
-use std::sync::Arc;
+use std::ops::{Add, AddAssign, ControlFlow};
 
 use comemo::Tracked;
 use ecow::{eco_format, EcoString};
 use serde::{Serialize, Serializer};
+
 use typst_syntax::Span;
-use typst_utils::{fat, singleton, LazyHash, SmallBitSet};
+use typst_utils::singleton;
 
 use crate::diag::{SourceResult, StrResult};
 use crate::engine::Engine;
 use crate::foundations::{
-    elem, func, scope, ty, Context, Dict, Element, Fields, IntoValue, Label,
-    NativeElement, Recipe, RecipeIndex, Repr, Selector, Show, Str, Style, StyleChain,
-    Styles, Value,
+    func, repr, scope, ty, Context, Dict, IntoValue, Label, Property, Recipe,
+    RecipeIndex, Repr, Selector, Str, Style, StyleChain, Styles, Value,
 };
 use crate::introspection::{Locatable, Location};
 use crate::layout::{AlignElem, Alignment, Axes, Length, MoveElem, PadElem, Rel, Sides};
@@ -69,43 +79,14 @@ use crate::text::UnderlineElem;
 /// elements the content is composed of and what fields they have.
 /// Alternatively, you can inspect the output of the [`repr`] function.
 #[ty(scope, cast)]
-#[derive(Clone, Hash)]
-#[allow(clippy::derived_hash_with_manual_eq)]
-pub struct Content {
-    /// The partially element-dependent inner data.
-    inner: Arc<Inner<dyn Bounds>>,
-    /// The element's source code location.
-    span: Span,
-}
-
-/// The inner representation behind the `Arc`.
-#[derive(Hash)]
-struct Inner<T: ?Sized + 'static> {
-    /// An optional label attached to the element.
-    label: Option<Label>,
-    /// The element's location which identifies it in the layouted output.
-    location: Option<Location>,
-    /// Manages the element during realization.
-    /// - If bit 0 is set, the element is prepared.
-    /// - If bit n is set, the element is guarded against the n-th show rule
-    ///   recipe from the top of the style chain (counting from 1).
-    lifecycle: SmallBitSet,
-    /// The element's raw data.
-    elem: LazyHash<T>,
-}
+#[derive(Clone, PartialEq, Hash)]
+#[repr(transparent)]
+pub struct Content(raw::RawContent);
 
 impl Content {
     /// Creates a new content from an element.
     pub fn new<T: NativeElement>(elem: T) -> Self {
-        Self {
-            inner: Arc::new(Inner {
-                label: None,
-                location: None,
-                lifecycle: SmallBitSet::new(),
-                elem: elem.into(),
-            }),
-            span: Span::detached(),
-        }
+        Self(raw::RawContent::new(elem))
     }
 
     /// Creates a empty sequence content.
@@ -115,25 +96,25 @@ impl Content {
 
     /// Get the element of this content.
     pub fn elem(&self) -> Element {
-        self.inner.elem.dyn_elem()
+        self.0.elem()
     }
 
     /// Get the span of the content.
     pub fn span(&self) -> Span {
-        self.span
+        self.0.span()
     }
 
     /// Set the span of the content.
     pub fn spanned(mut self, span: Span) -> Self {
-        if self.span.is_detached() {
-            self.span = span;
+        if self.0.span().is_detached() {
+            *self.0.span_mut() = span;
         }
         self
     }
 
     /// Get the label of the content.
     pub fn label(&self) -> Option<Label> {
-        self.inner.label
+        self.0.meta().label
     }
 
     /// Attach a label to the content.
@@ -144,7 +125,7 @@ impl Content {
 
     /// Set the label of the content.
     pub fn set_label(&mut self, label: Label) {
-        self.make_mut().label = Some(label);
+        self.0.meta_mut().label = Some(label);
     }
 
     /// Assigns a location to the content.
@@ -160,28 +141,28 @@ impl Content {
 
     /// Set the location of the content.
     pub fn set_location(&mut self, location: Location) {
-        self.make_mut().location = Some(location);
+        self.0.meta_mut().location = Some(location);
     }
 
     /// Check whether a show rule recipe is disabled.
     pub fn is_guarded(&self, index: RecipeIndex) -> bool {
-        self.inner.lifecycle.contains(index.0)
+        self.0.meta().lifecycle.contains(index.0)
     }
 
     /// Disable a show rule recipe.
     pub fn guarded(mut self, index: RecipeIndex) -> Self {
-        self.make_mut().lifecycle.insert(index.0);
+        self.0.meta_mut().lifecycle.insert(index.0);
         self
     }
 
     /// Whether this content has already been prepared.
     pub fn is_prepared(&self) -> bool {
-        self.inner.lifecycle.contains(0)
+        self.0.meta().lifecycle.contains(0)
     }
 
     /// Mark this content as prepared.
     pub fn mark_prepared(&mut self) {
-        self.make_mut().lifecycle.insert(0);
+        self.0.meta_mut().lifecycle.insert(0);
     }
 
     /// Get a field by ID.
@@ -199,9 +180,14 @@ impl Content {
                 return Ok(label.into_value());
             }
         }
-        match styles {
-            Some(styles) => self.inner.elem.field_with_styles(id, styles),
-            None => self.inner.elem.field(id),
+
+        match self.0.handle().field(id) {
+            Some(handle) => match styles {
+                Some(styles) => handle.get_with_styles(styles),
+                None => handle.get(),
+            }
+            .ok_or(FieldAccessError::Unset),
+            None => Err(FieldAccessError::Unknown),
         }
     }
 
@@ -216,8 +202,11 @@ impl Content {
                 .map(|label| label.into_value())
                 .ok_or(FieldAccessError::Unknown);
         }
-        let id = self.elem().field_id(name).ok_or(FieldAccessError::Unknown)?;
-        self.get(id, None)
+
+        match self.elem().field_id(name).and_then(|id| self.0.handle().field(id)) {
+            Some(handle) => handle.get().ok_or(FieldAccessError::Unset),
+            None => Err(FieldAccessError::Unknown),
+        }
     }
 
     /// Get a field by ID, returning a missing field error if it does not exist.
@@ -241,7 +230,9 @@ impl Content {
 
     /// Resolve all fields with the styles and save them in-place.
     pub fn materialize(&mut self, styles: StyleChain) {
-        self.make_mut().elem.materialize(styles);
+        for id in 0..self.elem().vtable().fields.len() as u8 {
+            self.0.handle_mut().field(id).unwrap().materialize(styles);
+        }
     }
 
     /// Create a new sequence element from multiples elements.
@@ -258,7 +249,7 @@ impl Content {
 
     /// Whether the contained element is of type `T`.
     pub fn is<T: NativeElement>(&self) -> bool {
-        self.inner.elem.dyn_type_id() == TypeId::of::<T>()
+        self.0.is::<T>()
     }
 
     /// Downcasts the element to a packed value.
@@ -281,16 +272,6 @@ impl Content {
         self.into_packed::<T>().map(Packed::unpack)
     }
 
-    /// Makes sure the content is not shared and returns a mutable reference to
-    /// the inner data.
-    fn make_mut(&mut self) -> &mut Inner<dyn Bounds> {
-        let arc = &mut self.inner;
-        if Arc::strong_count(arc) > 1 || Arc::weak_count(arc) > 0 {
-            *self = arc.elem.dyn_clone(arc, self.span);
-        }
-        Arc::get_mut(&mut self.inner).unwrap()
-    }
-
     /// Whether the contained element has the given capability.
     pub fn can<C>(&self) -> bool
     where
@@ -305,13 +286,7 @@ impl Content {
     where
         C: ?Sized + 'static,
     {
-        // Safety: The vtable comes from the `Capable` implementation which
-        // guarantees to return a matching vtable for `Packed<T>` and `C`.
-        // Since any `Packed<T>` is a repr(transparent) `Content`, we can also
-        // use a `*const Content` pointer.
-        let vtable = self.elem().vtable()(TypeId::of::<C>())?;
-        let data = self as *const Content as *const ();
-        Some(unsafe { &*fat::from_raw_parts(data, vtable.as_ptr()) })
+        self.0.with::<C>()
     }
 
     /// Cast to a mutable trait object if the contained element has the given
@@ -320,18 +295,7 @@ impl Content {
     where
         C: ?Sized + 'static,
     {
-        // Safety: The vtable comes from the `Capable` implementation which
-        // guarantees to return a matching vtable for `Packed<T>` and `C`.
-        // Since any `Packed<T>` is a repr(transparent) `Content`, we can also
-        // use a `*const Content` pointer.
-        //
-        // The resulting trait object contains an `&mut Packed<T>`. We do _not_
-        // need to ensure that we hold the only reference to the `Arc` here
-        // because `Packed<T>`'s DerefMut impl will take care of that if
-        // mutable access is required.
-        let vtable = self.elem().vtable()(TypeId::of::<C>())?;
-        let data = self as *mut Content as *mut ();
-        Some(unsafe { &mut *fat::from_raw_parts_mut(data, vtable.as_ptr()) })
+        self.0.with_mut::<C>()
     }
 
     /// Whether the content is an empty sequence.
@@ -371,6 +335,15 @@ impl Content {
     /// Repeat this content `count` times.
     pub fn repeat(&self, count: usize) -> Self {
         Self::sequence(std::iter::repeat_with(|| self.clone()).take(count))
+    }
+
+    /// Sets a style property on the content.
+    pub fn set<E, const I: u8>(self, field: Field<E, I>, value: E::Type) -> Self
+    where
+        E: SettableProperty<I>,
+        E::Type: Debug + Clone + Hash + Send + Sync + 'static,
+    {
+        self.styled(Property::new(field, value))
     }
 
     /// Style this content with a style entry.
@@ -477,7 +450,7 @@ impl Content {
 
         // Call f on the element itself before recursively iterating its fields.
         f(self.clone())?;
-        for (_, value) in self.inner.elem.fields() {
+        for (_, value) in self.fields() {
             walk_value(value, f)?;
         }
         ControlFlow::Continue(())
@@ -509,12 +482,12 @@ impl Content {
         LinkMarker::new(self, dest.clone(), alt)
             .pack()
             .spanned(span)
-            .styled(LinkElem::set_current(Some(dest)))
+            .set(LinkElem::current, Some(dest))
     }
 
     /// Set alignments for this content.
     pub fn aligned(self, align: Alignment) -> Self {
-        self.styled(AlignElem::set_alignment(align))
+        self.set(AlignElem::alignment, align)
     }
 
     /// Pad this content at the sides.
@@ -573,7 +546,10 @@ impl Content {
             return false;
         };
 
-        self.inner.elem.has(id)
+        match self.0.handle().field(id) {
+            Some(field) => field.has(),
+            None => false,
+        }
     }
 
     /// Access the specified field on the content. Returns the default value if
@@ -603,7 +579,12 @@ impl Content {
     /// ```
     #[func]
     pub fn fields(&self) -> Dict {
-        let mut dict = self.inner.elem.fields();
+        let mut dict = Dict::new();
+        for field in self.0.handle().fields() {
+            if let Some(value) = field.get() {
+                dict.insert(field.name.into(), value);
+            }
+        }
         if let Some(label) = self.label() {
             dict.insert("label".into(), label.into_value());
         }
@@ -616,7 +597,7 @@ impl Content {
     /// used with [counters]($counter), [state] and [queries]($query).
     #[func]
     pub fn location(&self) -> Option<Location> {
-        self.inner.location
+        self.0.meta().location
     }
 }
 
@@ -628,7 +609,7 @@ impl Default for Content {
 
 impl Debug for Content {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        self.inner.elem.fmt(f)
+        self.0.fmt(f)
     }
 }
 
@@ -638,16 +619,22 @@ impl<T: NativeElement> From<T> for Content {
     }
 }
 
-impl PartialEq for Content {
-    fn eq(&self, other: &Self) -> bool {
-        // Additional short circuit for different elements.
-        self.elem() == other.elem() && self.inner.elem.dyn_eq(other)
-    }
-}
-
 impl Repr for Content {
     fn repr(&self) -> EcoString {
-        self.inner.elem.repr()
+        self.0.handle().repr().unwrap_or_else(|| {
+            let fields = self
+                .0
+                .handle()
+                .fields()
+                .filter_map(|field| field.get().map(|v| (field.name, v.repr())))
+                .map(|(name, value)| eco_format!("{name}: {value}"))
+                .collect::<Vec<_>>();
+            eco_format!(
+                "{}{}",
+                self.elem().name(),
+                repr::pretty_array_like(&fields, false),
+            )
+        })
     }
 }
 
@@ -728,190 +715,8 @@ impl Serialize for Content {
     }
 }
 
-/// The trait that combines all the other traits into a trait object.
-trait Bounds: Debug + Repr + Fields + Send + Sync + 'static {
-    fn dyn_type_id(&self) -> TypeId;
-    fn dyn_elem(&self) -> Element;
-    fn dyn_clone(&self, inner: &Inner<dyn Bounds>, span: Span) -> Content;
-    fn dyn_hash(&self, hasher: &mut dyn Hasher);
-    fn dyn_eq(&self, other: &Content) -> bool;
-}
-
-impl<T: NativeElement> Bounds for T {
-    fn dyn_type_id(&self) -> TypeId {
-        TypeId::of::<Self>()
-    }
-
-    fn dyn_elem(&self) -> Element {
-        Self::elem()
-    }
-
-    fn dyn_clone(&self, inner: &Inner<dyn Bounds>, span: Span) -> Content {
-        Content {
-            inner: Arc::new(Inner {
-                label: inner.label,
-                location: inner.location,
-                lifecycle: inner.lifecycle.clone(),
-                elem: LazyHash::reuse(self.clone(), &inner.elem),
-            }),
-            span,
-        }
-    }
-
-    fn dyn_hash(&self, mut state: &mut dyn Hasher) {
-        TypeId::of::<Self>().hash(&mut state);
-        self.hash(&mut state);
-    }
-
-    fn dyn_eq(&self, other: &Content) -> bool {
-        let Some(other) = other.to_packed::<Self>() else {
-            return false;
-        };
-        *self == **other
-    }
-}
-
-impl Hash for dyn Bounds {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.dyn_hash(state);
-    }
-}
-
-/// A packed element of a static type.
-#[derive(Clone, PartialEq, Hash)]
-#[repr(transparent)]
-pub struct Packed<T: NativeElement>(
-    /// Invariant: Must be of type `T`.
-    Content,
-    PhantomData<T>,
-);
-
-impl<T: NativeElement> Packed<T> {
-    /// Pack element while retaining its static type.
-    pub fn new(element: T) -> Self {
-        // Safety: The element is known to be of type `T`.
-        Packed(element.pack(), PhantomData)
-    }
-
-    /// Try to cast type-erased content into a statically known packed element.
-    pub fn from_ref(content: &Content) -> Option<&Self> {
-        if content.is::<T>() {
-            // Safety:
-            // - We have checked the type.
-            // - Packed<T> is repr(transparent).
-            return Some(unsafe { std::mem::transmute::<&Content, &Packed<T>>(content) });
-        }
-        None
-    }
-
-    /// Try to cast type-erased content into a statically known packed element.
-    pub fn from_mut(content: &mut Content) -> Option<&mut Self> {
-        if content.is::<T>() {
-            // Safety:
-            // - We have checked the type.
-            // - Packed<T> is repr(transparent).
-            return Some(unsafe {
-                std::mem::transmute::<&mut Content, &mut Packed<T>>(content)
-            });
-        }
-        None
-    }
-
-    /// Try to cast type-erased content into a statically known packed element.
-    pub fn from_owned(content: Content) -> Result<Self, Content> {
-        if content.is::<T>() {
-            // Safety:
-            // - We have checked the type.
-            // - Packed<T> is repr(transparent).
-            return Ok(unsafe { std::mem::transmute::<Content, Packed<T>>(content) });
-        }
-        Err(content)
-    }
-
-    /// Pack back into content.
-    pub fn pack(self) -> Content {
-        self.0
-    }
-
-    /// Extract the raw underlying element.
-    pub fn unpack(self) -> T {
-        // This function doesn't yet need owned self, but might in the future.
-        (*self).clone()
-    }
-
-    /// The element's span.
-    pub fn span(&self) -> Span {
-        self.0.span()
-    }
-
-    /// Set the span of the element.
-    pub fn spanned(self, span: Span) -> Self {
-        Self(self.0.spanned(span), PhantomData)
-    }
-
-    /// Accesses the label of the element.
-    pub fn label(&self) -> Option<Label> {
-        self.0.label()
-    }
-
-    /// Accesses the location of the element.
-    pub fn location(&self) -> Option<Location> {
-        self.0.location()
-    }
-
-    /// Sets the location of the element.
-    pub fn set_location(&mut self, location: Location) {
-        self.0.set_location(location);
-    }
-}
-
-impl<T: NativeElement> AsRef<T> for Packed<T> {
-    fn as_ref(&self) -> &T {
-        self
-    }
-}
-
-impl<T: NativeElement> AsMut<T> for Packed<T> {
-    fn as_mut(&mut self) -> &mut T {
-        self
-    }
-}
-
-impl<T: NativeElement> Deref for Packed<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        // Safety:
-        // - Packed<T> guarantees that the content trait object wraps
-        //   an element of type `T`.
-        // - This downcast works the same way as dyn Any's does. We can't reuse
-        //   that one because we don't want to pay the cost for every deref.
-        let elem = &*self.0.inner.elem;
-        unsafe { &*(elem as *const dyn Bounds as *const T) }
-    }
-}
-
-impl<T: NativeElement> DerefMut for Packed<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        // Safety:
-        // - Packed<T> guarantees that the content trait object wraps
-        //   an element of type `T`.
-        // - We have guaranteed unique access thanks to `make_mut`.
-        // - This downcast works the same way as dyn Any's does. We can't reuse
-        //   that one because we don't want to pay the cost for every deref.
-        let elem = &mut *self.0.make_mut().elem;
-        unsafe { &mut *(elem as *mut dyn Bounds as *mut T) }
-    }
-}
-
-impl<T: NativeElement + Debug> Debug for Packed<T> {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
 /// A sequence of content.
-#[elem(Debug, Repr, PartialEq)]
+#[elem(Debug, Repr)]
 pub struct SequenceElem {
     /// The elements.
     #[required]
@@ -933,19 +738,13 @@ impl Default for SequenceElem {
     }
 }
 
-impl PartialEq for SequenceElem {
-    fn eq(&self, other: &Self) -> bool {
-        self.children.iter().eq(other.children.iter())
-    }
-}
-
 impl Repr for SequenceElem {
     fn repr(&self) -> EcoString {
         if self.children.is_empty() {
             "[]".into()
         } else {
             let elements = crate::foundations::repr::pretty_array_like(
-                &self.children.iter().map(|c| c.inner.elem.repr()).collect::<Vec<_>>(),
+                &self.children.iter().map(|c| c.repr()).collect::<Vec<_>>(),
                 false,
             );
             eco_format!("sequence{}", elements)
@@ -985,12 +784,6 @@ impl Repr for StyledElem {
     }
 }
 
-/// Tries to extract the plain-text representation of the element.
-pub trait PlainText {
-    /// Write this element's plain text into the given buffer.
-    fn plain_text(&self, text: &mut EcoString);
-}
-
 /// An element that associates the body of a link with the destination.
 #[elem(Show, Locatable)]
 pub struct LinkMarker {
@@ -1009,43 +802,8 @@ impl Show for Packed<LinkMarker> {
     }
 }
 
-/// An error arising when trying to access a field of content.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub enum FieldAccessError {
-    Unknown,
-    Unset,
-    Internal,
-}
-
-impl FieldAccessError {
-    /// Formats the error message given the content and the field name.
-    #[cold]
-    pub fn message(self, content: &Content, field: &str) -> EcoString {
-        let elem_name = content.elem().name();
-        match self {
-            FieldAccessError::Unknown => {
-                eco_format!("{elem_name} does not have field {}", field.repr())
-            }
-            FieldAccessError::Unset => {
-                eco_format!(
-                    "field {} in {elem_name} is not known at this point",
-                    field.repr()
-                )
-            }
-            FieldAccessError::Internal => {
-                eco_format!(
-                    "internal error when accessing field {} in {elem_name} – this is a bug",
-                    field.repr()
-                )
-            }
-        }
-    }
-
-    /// Formats the error message for an `at` calls without a default value.
-    #[cold]
-    pub fn message_no_default(self, content: &Content, field: &str) -> EcoString {
-        let mut msg = self.message(content, field);
-        msg.push_str(" and no default was specified");
-        msg
+impl<T: NativeElement> IntoValue for T {
+    fn into_value(self) -> Value {
+        Value::Content(self.pack())
     }
 }

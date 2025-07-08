@@ -42,8 +42,8 @@ impl TableCtx {
     }
 
     pub(crate) fn contains(&self, cell: &Packed<TableCell>) -> bool {
-        let x = cell.x(StyleChain::default()).unwrap_or_else(|| unreachable!());
-        let y = cell.y(StyleChain::default()).unwrap_or_else(|| unreachable!());
+        let x = cell.x.get(StyleChain::default()).unwrap_or_else(|| unreachable!());
+        let y = cell.y.get(StyleChain::default()).unwrap_or_else(|| unreachable!());
         self.get(x, y).is_some()
     }
 
@@ -56,11 +56,11 @@ impl TableCtx {
     }
 
     pub(crate) fn insert(&mut self, cell: &TableCell, nodes: Vec<TagNode>) {
-        let x = cell.x(StyleChain::default()).unwrap_or_else(|| unreachable!());
-        let y = cell.y(StyleChain::default()).unwrap_or_else(|| unreachable!());
-        let rowspan = cell.rowspan(StyleChain::default());
-        let colspan = cell.colspan(StyleChain::default());
-        let kind = cell.kind().copied().expect("kind to be set after layouting");
+        let x = cell.x.get(StyleChain::default()).unwrap_or_else(|| unreachable!());
+        let y = cell.y.get(StyleChain::default()).unwrap_or_else(|| unreachable!());
+        let rowspan = cell.rowspan.get(StyleChain::default());
+        let colspan = cell.colspan.get(StyleChain::default());
+        let kind = cell.kind.expect("kind to be set after layouting");
 
         // Extend the table grid to fit this cell.
         let required_height = y + rowspan.get();
