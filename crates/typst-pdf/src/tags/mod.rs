@@ -31,7 +31,11 @@ use crate::tags::table::TableCtx;
 mod outline;
 mod table;
 
-pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) -> SourceResult<()> {
+pub(crate) fn handle_start(
+    gc: &mut GlobalContext,
+    surface: &mut Surface,
+    elem: &Content,
+) -> SourceResult<()> {
     if gc.tags.in_artifact.is_some() {
         // Don't nest artifacts
         return Ok(());
@@ -41,10 +45,10 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) -> SourceResu
 
     if let Some(artifact) = elem.to_packed::<ArtifactElem>() {
         let kind = artifact.kind.get(StyleChain::default());
-        start_artifact(gc, loc, kind);
+        start_artifact(gc, surface, loc, kind);
         return Ok(());
     } else if let Some(_) = elem.to_packed::<RepeatElem>() {
-        start_artifact(gc, loc, ArtifactKind::Other);
+        start_artifact(gc, surface, loc, ArtifactKind::Other);
         return Ok(());
     }
 
@@ -103,7 +107,7 @@ pub(crate) fn handle_start(gc: &mut GlobalContext, elem: &Content) -> SourceResu
             // first page. Maybe it should be the cell on the last page, but that
             // would require more changes in the layouting code, or a pre-pass
             // on the frames to figure out if there are other footers following.
-            start_artifact(gc, loc, ArtifactKind::Other);
+            start_artifact(gc, surface, loc, ArtifactKind::Other);
         } else {
             push_stack(gc, loc, StackEntryKind::TableCell(cell.clone()))?;
         }
@@ -141,9 +145,10 @@ fn push_stack(
     Ok(())
 }
 
-pub(crate) fn handle_end(gc: &mut GlobalContext, loc: Location) {
+pub(crate) fn handle_end(gc: &mut GlobalContext, surface: &mut Surface, loc: Location) {
     if let Some((l, _)) = gc.tags.in_artifact {
         if l == loc {
+            surface.end_tagged();
             gc.tags.in_artifact = None;
         }
         return;
@@ -200,6 +205,20 @@ pub(crate) fn handle_end(gc: &mut GlobalContext, loc: Location) {
     };
 
     gc.tags.push(node);
+}
+
+pub(crate) fn page_start(gc: &mut GlobalContext, surface: &mut Surface) {
+    if let Some((_, kind)) = gc.tags.in_artifact {
+        let ty = artifact_type(kind);
+        let id = surface.start_tagged(ContentTag::Artifact(ty));
+        gc.tags.push(TagNode::Leaf(id));
+    }
+}
+
+pub(crate) fn page_end(gc: &mut GlobalContext, surface: &mut Surface) {
+    if gc.tags.in_artifact.is_some() {
+        surface.end_tagged();
+    }
 }
 
 /// Add all annotations that were found in the page frame.
@@ -397,11 +416,16 @@ pub(crate) struct Placeholder(usize);
 /// Automatically calls [`Surface::end_tagged`] when dropped.
 pub(crate) struct TagHandle<'a, 'b> {
     surface: &'b mut Surface<'a>,
+    /// Whether this tag handle started the marked content sequence, and should
+    /// thus end it when it is dropped.
+    started: bool,
 }
 
 impl Drop for TagHandle<'_, '_> {
     fn drop(&mut self) {
-        self.surface.end_tagged();
+        if self.started {
+            self.surface.end_tagged();
+        }
     }
 }
 
@@ -435,9 +459,8 @@ fn start_content<'a, 'b>(
     surface: &'b mut Surface<'a>,
     content: ContentTag,
 ) -> TagHandle<'a, 'b> {
-    let content = if let Some((_, kind)) = gc.tags.in_artifact {
-        let ty = artifact_type(kind);
-        ContentTag::Artifact(ty)
+    let content = if gc.tags.in_artifact.is_some() {
+        return TagHandle { surface, started: false };
     } else if let Some(StackEntryKind::Table(_)) = gc.tags.stack.last().map(|e| &e.kind) {
         // Mark any direct child of a table as an aritfact. Any real content
         // will be wrapped inside a `TableCell`.
@@ -447,10 +470,18 @@ fn start_content<'a, 'b>(
     };
     let id = surface.start_tagged(content);
     gc.tags.push(TagNode::Leaf(id));
-    TagHandle { surface }
+    TagHandle { surface, started: true }
 }
 
-fn start_artifact(gc: &mut GlobalContext, loc: Location, kind: ArtifactKind) {
+fn start_artifact(
+    gc: &mut GlobalContext,
+    surface: &mut Surface,
+    loc: Location,
+    kind: ArtifactKind,
+) {
+    let ty = artifact_type(kind);
+    let id = surface.start_tagged(ContentTag::Artifact(ty));
+    gc.tags.push(TagNode::Leaf(id));
     gc.tags.in_artifact = Some((loc, kind));
 }
 
