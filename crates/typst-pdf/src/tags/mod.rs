@@ -18,7 +18,7 @@ use typst_library::introspection::Location;
 use typst_library::layout::RepeatElem;
 use typst_library::model::{
     Destination, FigureCaption, FigureElem, HeadingElem, Outlinable, OutlineBody,
-    OutlineEntry, ParElem, TableCell, TableElem,
+    OutlineEntry, TableCell, TableElem,
 };
 use typst_library::pdf::{ArtifactElem, ArtifactKind, PdfTagElem, PdfTagKind};
 use typst_library::visualize::ImageElem;
@@ -116,8 +116,6 @@ pub(crate) fn handle_start(
         let link_id = gc.tags.next_link_id();
         push_stack(gc, loc, StackEntryKind::Link(link_id, link.clone()))?;
         return Ok(());
-    } else if let Some(_) = elem.to_packed::<ParElem>() {
-        TagKind::P.into()
     } else {
         return Ok(());
     };
