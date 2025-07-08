@@ -133,7 +133,7 @@ impl TableCtx {
 
         // Explicitly set the headers attribute for cells.
         for x in 0..width {
-            let mut column_header = None;
+            let mut column_header = Vec::new();
             for y in 0..height {
                 self.resolve_cell_headers(
                     (x, y),
@@ -143,7 +143,7 @@ impl TableCtx {
             }
         }
         for y in 0..height {
-            let mut row_header = None;
+            let mut row_header = Vec::new();
             for x in 0..width {
                 self.resolve_cell_headers(
                     (x, y),
@@ -224,7 +224,7 @@ impl TableCtx {
     fn resolve_cell_headers<F>(
         &mut self,
         (x, y): (usize, usize),
-        current_header: &mut Option<(NonZeroU32, TagId)>,
+        current_header: &mut Vec<(NonZeroU32, TagId)>,
         refers_to_dir: F,
     ) where
         F: Fn(&TableHeaderScope) -> bool,
@@ -232,26 +232,24 @@ impl TableCtx {
         let table_id = self.id;
         let Some(cell) = self.get_mut(x, y) else { return };
 
-        if let Some((prev_level, cell_id)) = current_header.clone() {
-            // The `Headers` attribute is also set for parent headers.
-            let mut is_parent_header = true;
-            if let TableCellKind::Header(level, scope) = cell.unwrap_kind() {
-                if refers_to_dir(&scope) {
-                    is_parent_header = prev_level < level;
-                }
-            }
+        let mut new_header = None;
+        if let TableCellKind::Header(level, scope) = cell.unwrap_kind() {
+            if refers_to_dir(&scope) {
+                // Remove all headers that are the same or a lower level.
+                while current_header.pop_if(|(l, _)| *l >= level).is_some() {}
 
-            if is_parent_header && !cell.headers.ids.contains(&cell_id) {
+                let tag_id = table_cell_id(table_id, cell.x, cell.y);
+                new_header = Some((level, tag_id));
+            }
+        }
+
+        if let Some((_, cell_id)) = current_header.last() {
+            if !cell.headers.ids.contains(&cell_id) {
                 cell.headers.ids.push(cell_id.clone());
             }
         }
 
-        if let TableCellKind::Header(level, scope) = cell.unwrap_kind() {
-            if refers_to_dir(&scope) {
-                let tag_id = table_cell_id(table_id, cell.x, cell.y);
-                *current_header = Some((level, tag_id));
-            }
-        }
+        current_header.extend(new_header);
     }
 }
 
@@ -339,7 +337,7 @@ mod tests {
     #[track_caller]
     fn test(table: TableCtx, exp_tag: TagNode) {
         let tag = table.build_table(Vec::new());
-        assert_eq!(tag, exp_tag);
+        assert_eq!(exp_tag, tag);
     }
 
     #[track_caller]
@@ -348,12 +346,15 @@ mod tests {
         for cell in cells {
             table.insert(Packed::new(cell), Vec::new());
         }
-
         table
     }
 
     #[track_caller]
-    fn header_cell(x: usize, y: usize, level: u32, scope: TableHeaderScope) -> TableCell {
+    fn header_cell(
+        (x, y): (usize, usize),
+        level: u32,
+        scope: TableHeaderScope,
+    ) -> TableCell {
         TableCell::new(Content::default())
             .with_x(Smart::Custom(x))
             .with_y(Smart::Custom(y))
@@ -363,6 +364,14 @@ mod tests {
             )))
     }
 
+    #[track_caller]
+    fn footer_cell(x: usize, y: usize) -> TableCell {
+        TableCell::new(Content::default())
+            .with_x(Smart::Custom(x))
+            .with_y(Smart::Custom(y))
+            .with_kind(Smart::Custom(TableCellKind::Footer))
+    }
+
     fn cell(x: usize, y: usize) -> TableCell {
         TableCell::new(Content::default())
             .with_x(Smart::Custom(x))
@@ -370,26 +379,36 @@ mod tests {
             .with_kind(Smart::Custom(TableCellKind::Data))
     }
 
+    fn empty_cell(x: usize, y: usize) -> TableCell {
+        TableCell::new(Content::default())
+            .with_x(Smart::Custom(x))
+            .with_y(Smart::Custom(y))
+            .with_kind(Smart::Auto)
+    }
+
     fn table_tag<const SIZE: usize>(nodes: [TagNode; SIZE]) -> TagNode {
         let tag = TagKind::Table(Some("summary".into()));
         TagNode::Group(tag.into(), nodes.into())
     }
 
-    fn header<const SIZE: usize>(nodes: [TagNode; SIZE]) -> TagNode {
+    fn thead<const SIZE: usize>(nodes: [TagNode; SIZE]) -> TagNode {
         TagNode::Group(TagKind::THead.into(), nodes.into())
     }
 
-    fn body<const SIZE: usize>(nodes: [TagNode; SIZE]) -> TagNode {
+    fn tbody<const SIZE: usize>(nodes: [TagNode; SIZE]) -> TagNode {
         TagNode::Group(TagKind::TBody.into(), nodes.into())
     }
 
-    fn row<const SIZE: usize>(nodes: [TagNode; SIZE]) -> TagNode {
+    fn tfoot<const SIZE: usize>(nodes: [TagNode; SIZE]) -> TagNode {
+        TagNode::Group(TagKind::TFoot.into(), nodes.into())
+    }
+
+    fn trow<const SIZE: usize>(nodes: [TagNode; SIZE]) -> TagNode {
         TagNode::Group(TagKind::TR.into(), nodes.into())
     }
 
-    fn header_cell_tag<const SIZE: usize>(
-        x: u32,
-        y: u32,
+    fn th<const SIZE: usize>(
+        (x, y): (u32, u32),
         scope: TableHeaderScope,
         headers: [(u32, u32); SIZE],
     ) -> TagNode {
@@ -406,7 +425,7 @@ mod tests {
         )
     }
 
-    fn cell_tag<const SIZE: usize>(headers: [(u32, u32); SIZE]) -> TagNode {
+    fn td<const SIZE: usize>(headers: [(u32, u32); SIZE]) -> TagNode {
         let ids = headers
             .map(|(x, y)| table_cell_id(TableId(324), x, y))
             .into_iter()
@@ -421,9 +440,9 @@ mod tests {
     fn simple_table() {
         #[rustfmt::skip]
         let table = table([
-            header_cell(0, 0, 1, TableHeaderScope::Column),
-            header_cell(1, 0, 1, TableHeaderScope::Column),
-            header_cell(2, 0, 1, TableHeaderScope::Column),
+            header_cell((0, 0), 1, TableHeaderScope::Column),
+            header_cell((1, 0), 1, TableHeaderScope::Column),
+            header_cell((2, 0), 1, TableHeaderScope::Column),
 
             cell(0, 1),
             cell(1, 1),
@@ -436,21 +455,21 @@ mod tests {
 
         #[rustfmt::skip]
         let tag = table_tag([
-            header([row([
-                header_cell_tag(0, 0, TableHeaderScope::Column, []),
-                header_cell_tag(1, 0, TableHeaderScope::Column, []),
-                header_cell_tag(2, 0, TableHeaderScope::Column, []),
+            thead([trow([
+                th((0, 0), TableHeaderScope::Column, []),
+                th((1, 0), TableHeaderScope::Column, []),
+                th((2, 0), TableHeaderScope::Column, []),
             ])]),
-            body([
-                row([
-                    cell_tag([(0, 0)]),
-                    cell_tag([(1, 0)]),
-                    cell_tag([(2, 0)]),
+            tbody([
+                trow([
+                    td([(0, 0)]),
+                    td([(1, 0)]),
+                    td([(2, 0)]),
                 ]),
-                row([
-                    cell_tag([(0, 0)]),
-                    cell_tag([(1, 0)]),
-                    cell_tag([(2, 0)]),
+                trow([
+                    td([(0, 0)]),
+                    td([(1, 0)]),
+                    td([(2, 0)]),
                 ]),
             ]),
         ]);
@@ -462,35 +481,111 @@ mod tests {
     fn header_row_and_column() {
         #[rustfmt::skip]
         let table = table([
-            header_cell(0, 0, 1, TableHeaderScope::Column),
-            header_cell(1, 0, 1, TableHeaderScope::Column),
-            header_cell(2, 0, 1, TableHeaderScope::Column),
+            header_cell((0, 0), 1, TableHeaderScope::Column),
+            header_cell((1, 0), 1, TableHeaderScope::Column),
+            header_cell((2, 0), 1, TableHeaderScope::Column),
 
-            header_cell(0, 1, 1, TableHeaderScope::Row),
+            header_cell((0, 1), 1, TableHeaderScope::Row),
             cell(1, 1),
             cell(2, 1),
 
-            header_cell(0, 2, 1, TableHeaderScope::Row),
+            header_cell((0, 2), 1, TableHeaderScope::Row),
             cell(1, 2),
             cell(2, 2),
         ]);
 
         #[rustfmt::skip]
         let tag = table_tag([
-            row([
-                header_cell_tag(0, 0, TableHeaderScope::Column, []),
-                header_cell_tag(1, 0, TableHeaderScope::Column, []),
-                header_cell_tag(2, 0, TableHeaderScope::Column, []),
+            trow([
+                th((0, 0), TableHeaderScope::Column, []),
+                th((1, 0), TableHeaderScope::Column, []),
+                th((2, 0), TableHeaderScope::Column, []),
             ]),
-            row([
-                header_cell_tag(0, 1, TableHeaderScope::Row, [(0, 0)]),
-                cell_tag([(1, 0), (0, 1)]),
-                cell_tag([(2, 0), (0, 1)]),
+            trow([
+                th((0, 1), TableHeaderScope::Row, [(0, 0)]),
+                td([(1, 0), (0, 1)]),
+                td([(2, 0), (0, 1)]),
             ]),
-            row([
-                header_cell_tag(0, 2, TableHeaderScope::Row, [(0, 0)]),
-                cell_tag([(1, 0), (0, 2)]),
-                cell_tag([(2, 0), (0, 2)]),
+            trow([
+                th((0, 2), TableHeaderScope::Row, [(0, 0)]),
+                td([(1, 0), (0, 2)]),
+                td([(2, 0), (0, 2)]),
+            ]),
+        ]);
+
+        test(table, tag);
+    }
+
+    #[test]
+    fn complex_tables() {
+        #[rustfmt::skip]
+        let table = table([
+            header_cell((0, 0), 1, TableHeaderScope::Column),
+            header_cell((1, 0), 1, TableHeaderScope::Column),
+            header_cell((2, 0), 1, TableHeaderScope::Column),
+
+            header_cell((0, 1), 2, TableHeaderScope::Column),
+            header_cell((1, 1), 2, TableHeaderScope::Column),
+            header_cell((2, 1), 2, TableHeaderScope::Column),
+
+            cell(0, 2),
+            empty_cell(1, 2), // the type of empty cells is inferred from the row
+            cell(2, 2),
+
+            header_cell((0, 3), 2, TableHeaderScope::Column),
+            header_cell((1, 3), 2, TableHeaderScope::Column),
+            empty_cell(2, 3), // the type of empty cells is inferred from the row
+
+            cell(0, 4),
+            cell(1, 4),
+            empty_cell(2, 4),
+
+            empty_cell(0, 5), // the type of empty cells is inferred from the row
+            footer_cell(1, 5),
+            footer_cell(2, 5),
+        ]);
+
+        #[rustfmt::skip]
+        let tag = table_tag([
+            thead([
+                trow([
+                    th((0, 0), TableHeaderScope::Column, []),
+                    th((1, 0), TableHeaderScope::Column, []),
+                    th((2, 0), TableHeaderScope::Column, []),
+                ]),
+                trow([
+                    th((0, 1), TableHeaderScope::Column, [(0, 0)]),
+                    th((1, 1), TableHeaderScope::Column, [(1, 0)]),
+                    th((2, 1), TableHeaderScope::Column, [(2, 0)]),
+                ]),
+            ]),
+            tbody([
+                trow([
+                    td([(0, 1)]),
+                    td([(1, 1)]),
+                    td([(2, 1)]),
+                ]),
+            ]),
+            thead([
+                trow([
+                    th((0, 3), TableHeaderScope::Column, [(0, 0)]),
+                    th((1, 3), TableHeaderScope::Column, [(1, 0)]),
+                    th((2, 3), TableHeaderScope::Column, [(2, 0)]),
+                ]),
+            ]),
+            tbody([
+                trow([
+                    td([(0, 3)]),
+                    td([(1, 3)]),
+                    td([(2, 3)]),
+                ]),
+            ]),
+            tfoot([
+                trow([
+                    td([(0, 3)]),
+                    td([(1, 3)]),
+                    td([(2, 3)]),
+                ]),
             ]),
         ]);
 
