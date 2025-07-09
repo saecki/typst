@@ -128,7 +128,10 @@ impl Show for Packed<LinkElem> {
         } else {
             let alt = self.alt.get_cloned(styles);
             match &self.dest {
-                LinkTarget::Dest(dest) => body.linked(dest.clone(), alt),
+                LinkTarget::Dest(dest) => {
+                    let url = || dest.as_url().map(|url| url.clone().into_inner());
+                    body.linked(dest.clone(), alt.or_else(url))
+                }
                 LinkTarget::Label(label) => {
                     let elem = engine.introspector.query_label(*label).at(self.span())?;
                     let dest = Destination::Location(elem.location().unwrap());
@@ -190,7 +193,15 @@ pub enum Destination {
     Location(Location),
 }
 
-impl Destination {}
+impl Destination {
+    pub fn as_url(&self) -> Option<&Url> {
+        if let Self::Url(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+}
 
 impl Repr for Destination {
     fn repr(&self) -> EcoString {
