@@ -226,7 +226,7 @@ impl ResolvableCell for Packed<TableCell> {
         let breakable = cell.breakable.get(styles).unwrap_or(breakable);
         let fill = cell.fill.get_cloned(styles).unwrap_or_else(|| fill.clone());
 
-        let kind = cell.kind.unwrap_or_default().or(kind);
+        let kind = cell.kind.get(styles).or(kind);
 
         let cell_stroke = cell.stroke.resolve(styles);
         let stroke_overridden =
@@ -271,7 +271,7 @@ impl ResolvableCell for Packed<TableCell> {
             }),
         );
         cell.breakable.set(Smart::Custom(breakable));
-        cell.kind = Some(kind);
+        cell.kind.set(kind);
         Cell {
             body: self.pack(),
             locator,

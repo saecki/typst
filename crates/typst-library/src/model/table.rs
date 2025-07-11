@@ -688,7 +688,7 @@ pub struct TableCell {
     pub stroke: Sides<Option<Option<Arc<Stroke>>>>,
 
     #[internal]
-    #[synthesized]
+    #[parse(Some(Smart::Auto))]
     pub kind: Smart<TableCellKind>,
 
     /// Whether rows spanned by this cell can be placed in different pages.

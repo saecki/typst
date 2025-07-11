@@ -60,7 +60,7 @@ impl TableCtx {
         let y = cell.y.get(StyleChain::default()).unwrap_or_else(|| unreachable!());
         let rowspan = cell.rowspan.get(StyleChain::default());
         let colspan = cell.colspan.get(StyleChain::default());
-        let kind = cell.kind.expect("kind to be set after layouting");
+        let kind = cell.kind.get(StyleChain::default());
 
         // Extend the table grid to fit this cell.
         let required_height = y + rowspan.get();
