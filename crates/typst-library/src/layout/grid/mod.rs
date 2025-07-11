@@ -11,11 +11,11 @@ use crate::diag::{bail, At, HintedStrResult, HintedString, SourceResult};
 use crate::engine::Engine;
 use crate::foundations::{
     cast, elem, scope, Array, CastInfo, Content, Context, Fold, FromValue, Func,
-    IntoValue, NativeElement, Packed, Reflect, Resolve, Show, Smart, StyleChain, Value,
+    IntoValue, Packed, Reflect, Resolve, Smart, StyleChain, Value,
 };
 use crate::introspection::Locatable;
 use crate::layout::{
-    Alignment, BlockElem, Length, OuterHAlignment, OuterVAlignment, Rel, Sides, Sizing,
+    Alignment, Length, OuterHAlignment, OuterVAlignment, Rel, Sides, Sizing,
 };
 use crate::model::{TableCell, TableFooter, TableHLine, TableHeader, TableVLine};
 use crate::visualize::{Paint, Stroke};
@@ -137,7 +137,7 @@ use crate::visualize::{Paint, Stroke};
 ///
 /// Furthermore, strokes of a repeated grid header or footer will take
 /// precedence over regular cell strokes.
-#[elem(scope, Locatable, Show)]
+#[elem(scope, Locatable)]
 pub struct GridElem {
     /// The column sizes.
     ///
@@ -319,14 +319,6 @@ impl GridElem {
 
     #[elem]
     type GridFooter;
-}
-
-impl Show for Packed<GridElem> {
-    fn show(&self, engine: &mut Engine, _: StyleChain) -> SourceResult<Content> {
-        Ok(BlockElem::multi_layouter(self.clone(), engine.routines.layout_grid)
-            .pack()
-            .spanned(self.span()))
-    }
 }
 
 /// Track sizing definitions.
@@ -649,7 +641,7 @@ pub struct GridVLine {
 /// which allows you, for example, to apply styles based on a cell's position.
 /// Refer to the examples of the [`table.cell`]($table.cell) element to learn
 /// more about this.
-#[elem(name = "cell", title = "Grid Cell", Locatable, Show)]
+#[elem(name = "cell", title = "Grid Cell", Locatable)]
 pub struct GridCell {
     /// The cell's body.
     #[required]
@@ -749,12 +741,6 @@ cast! {
     v: Content => v.into(),
 }
 
-impl Show for Packed<GridCell> {
-    fn show(&self, _engine: &mut Engine, styles: StyleChain) -> SourceResult<Content> {
-        show_grid_cell(self.body.clone(), self.inset.get(styles), self.align.get(styles))
-    }
-}
-
 impl Default for Packed<GridCell> {
     fn default() -> Self {
         Packed::new(
@@ -773,28 +759,6 @@ impl From<Content> for GridCell {
         #[allow(clippy::unwrap_or_default)]
         value.unpack::<Self>().unwrap_or_else(Self::new)
     }
-}
-
-/// Function with common code to display a grid cell or table cell.
-pub(crate) fn show_grid_cell(
-    mut body: Content,
-    inset: Smart<Sides<Option<Rel<Length>>>>,
-    align: Smart<Alignment>,
-) -> SourceResult<Content> {
-    let inset = inset.unwrap_or_default().map(Option::unwrap_or_default);
-
-    if inset != Sides::default() {
-        // Only pad if some inset is not 0pt.
-        // Avoids a bug where using .padded() in any way inside Show causes
-        // alignment in align(...) to break.
-        body = body.padded(inset);
-    }
-
-    if let Smart::Custom(alignment) = align {
-        body = body.aligned(alignment);
-    }
-
-    Ok(body)
 }
 
 /// A value that can be configured per cell.

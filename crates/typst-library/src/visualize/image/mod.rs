@@ -8,6 +8,7 @@ pub use self::raster::{
 };
 pub use self::svg::SvgImage;
 
+use std::ffi::OsStr;
 use std::fmt::{self, Debug, Formatter};
 use std::sync::Arc;
 
@@ -15,17 +16,17 @@ use ecow::EcoString;
 use typst_syntax::{Span, Spanned};
 use typst_utils::LazyHash;
 
-use crate::diag::{SourceResult, StrResult};
+use crate::diag::{warning, At, LoadedWithin, SourceResult, StrResult};
 use crate::engine::Engine;
 use crate::foundations::{
-    cast, elem, func, scope, Bytes, Cast, Content, Derived, NativeElement, Packed, Show,
-    Smart, StyleChain,
+    cast, elem, func, scope, Bytes, Cast, Content, Derived, NativeElement, Packed, Smart,
+    StyleChain,
 };
 use crate::introspection::Locatable;
-use crate::layout::{BlockElem, Length, Rel, Sizing};
+use crate::layout::{Length, Rel, Sizing};
 use crate::loading::{DataSource, Load, LoadSource, Loaded, Readable};
 use crate::model::Figurable;
-use crate::text::LocalName;
+use crate::text::{families, LocalName};
 
 /// A raster or vector graphic.
 ///
@@ -45,7 +46,7 @@ use crate::text::LocalName;
 ///   ],
 /// )
 /// ```
-#[elem(scope, Locatable, Show, LocalName, Figurable)]
+#[elem(scope, Locatable, LocalName, Figurable)]
 pub struct ImageElem {
     /// A [path]($syntax/#paths) to an image file or raw bytes making up an
     /// image in one of the supported [formats]($image.format).
@@ -220,13 +221,78 @@ impl ImageElem {
     }
 }
 
-impl Show for Packed<ImageElem> {
-    fn show(&self, engine: &mut Engine, styles: StyleChain) -> SourceResult<Content> {
-        Ok(BlockElem::single_layouter(self.clone(), engine.routines.layout_image)
-            .with_width(self.width.get(styles))
-            .with_height(self.height.get(styles))
-            .pack()
-            .spanned(self.span()))
+impl Packed<ImageElem> {
+    /// Decodes the image.
+    pub fn decode(&self, engine: &mut Engine, styles: StyleChain) -> SourceResult<Image> {
+        let span = self.span();
+        let loaded = &self.source.derived;
+        let format = self.determine_format(styles).at(span)?;
+
+        // Warn the user if the image contains a foreign object. Not perfect
+        // because the svg could also be encoded, but that's an edge case.
+        if format == ImageFormat::Vector(VectorFormat::Svg) {
+            let has_foreign_object =
+                memchr::memmem::find(&loaded.data, b"<foreignObject").is_some();
+
+            if has_foreign_object {
+                engine.sink.warn(warning!(
+                span,
+                "image contains foreign object";
+                hint: "SVG images with foreign objects might render incorrectly in typst";
+                hint: "see https://github.com/typst/typst/issues/1421 for more information"
+            ));
+            }
+        }
+
+        // Construct the image itself.
+        let kind = match format {
+            ImageFormat::Raster(format) => ImageKind::Raster(
+                RasterImage::new(
+                    loaded.data.clone(),
+                    format,
+                    self.icc.get_ref(styles).as_ref().map(|icc| icc.derived.clone()),
+                )
+                .at(span)?,
+            ),
+            ImageFormat::Vector(VectorFormat::Svg) => ImageKind::Svg(
+                SvgImage::with_fonts(
+                    loaded.data.clone(),
+                    engine.world,
+                    &families(styles).map(|f| f.as_str()).collect::<Vec<_>>(),
+                )
+                .within(loaded)?,
+            ),
+        };
+
+        Ok(Image::new(kind, self.alt.get_cloned(styles), self.scaling.get(styles)))
+    }
+
+    /// Tries to determine the image format based on the format that was
+    /// explicitly defined, or else the extension, or else the data.
+    fn determine_format(&self, styles: StyleChain) -> StrResult<ImageFormat> {
+        if let Smart::Custom(v) = self.format.get(styles) {
+            return Ok(v);
+        };
+
+        let Derived { source, derived: loaded } = &self.source;
+        if let DataSource::Path(path) = source {
+            let ext = std::path::Path::new(path.as_str())
+                .extension()
+                .and_then(OsStr::to_str)
+                .unwrap_or_default()
+                .to_lowercase();
+
+            match ext.as_str() {
+                "png" => return Ok(ExchangeFormat::Png.into()),
+                "jpg" | "jpeg" => return Ok(ExchangeFormat::Jpg.into()),
+                "gif" => return Ok(ExchangeFormat::Gif.into()),
+                "svg" | "svgz" => return Ok(VectorFormat::Svg.into()),
+                "webp" => return Ok(ExchangeFormat::Webp.into()),
+                _ => {}
+            }
+        }
+
+        Ok(ImageFormat::detect(&loaded.data).ok_or("unknown image format")?)
     }
 }
 

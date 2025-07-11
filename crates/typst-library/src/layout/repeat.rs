@@ -1,8 +1,6 @@
-use crate::diag::SourceResult;
-use crate::engine::Engine;
-use crate::foundations::{elem, Content, NativeElement, Packed, Show, StyleChain};
+use crate::foundations::{elem, Content};
 use crate::introspection::Locatable;
-use crate::layout::{BlockElem, Length};
+use crate::layout::Length;
 
 /// Repeats content to the available space.
 ///
@@ -25,7 +23,7 @@ use crate::layout::{BlockElem, Length};
 ///   Berlin, the 22nd of December, 2022
 /// ]
 /// ```
-#[elem(Locatable, Show)]
+#[elem(Locatable)]
 pub struct RepeatElem {
     /// The content to repeat.
     #[required]
@@ -39,12 +37,4 @@ pub struct RepeatElem {
     /// available space.
     #[default(true)]
     pub justify: bool,
-}
-
-impl Show for Packed<RepeatElem> {
-    fn show(&self, engine: &mut Engine, _: StyleChain) -> SourceResult<Content> {
-        Ok(BlockElem::single_layouter(self.clone(), engine.routines.layout_repeat)
-            .pack()
-            .spanned(self.span()))
-    }
 }

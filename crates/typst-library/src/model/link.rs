@@ -2,13 +2,10 @@ use std::ops::Deref;
 
 use ecow::{eco_format, EcoString};
 
-use crate::diag::{bail, warning, At, SourceResult, StrResult};
-use crate::engine::Engine;
+use crate::diag::{bail, StrResult};
 use crate::foundations::{
-    cast, elem, Content, Label, NativeElement, Packed, Repr, Show, ShowSet, Smart,
-    StyleChain, Styles, TargetElem,
+    cast, elem, Content, Label, Packed, Repr, ShowSet, Smart, StyleChain, Styles,
 };
-use crate::html::{attr, tag, HtmlElem};
 use crate::introspection::{Locatable, Location};
 use crate::layout::Position;
 use crate::text::TextElem;
@@ -38,7 +35,7 @@ use crate::text::TextElem;
 /// # Syntax
 /// This function also has dedicated syntax: Text that starts with `http://` or
 /// `https://` is automatically turned into a link.
-#[elem(Locatable, Show)]
+#[elem(Locatable)]
 pub struct LinkElem {
     /// A text describing the link.
     pub alt: Option<EcoString>,
@@ -103,42 +100,6 @@ impl LinkElem {
     pub fn from_url(url: Url) -> Self {
         let body = body_from_url(&url);
         Self::new(LinkTarget::Dest(Destination::Url(url)), body)
-    }
-}
-
-impl Show for Packed<LinkElem> {
-    #[typst_macros::time(name = "link", span = self.span())]
-    fn show(&self, engine: &mut Engine, styles: StyleChain) -> SourceResult<Content> {
-        let body = self.body.clone();
-
-        Ok(if styles.get(TargetElem::target).is_html() {
-            if let LinkTarget::Dest(Destination::Url(url)) = &self.dest {
-                HtmlElem::new(tag::a)
-                    .with_attr(attr::href, url.clone().into_inner())
-                    .with_body(Some(body))
-                    .pack()
-                    .spanned(self.span())
-            } else {
-                engine.sink.warn(warning!(
-                    self.span(),
-                    "non-URL links are not yet supported by HTML export"
-                ));
-                body
-            }
-        } else {
-            let alt = self.alt.get_cloned(styles);
-            match &self.dest {
-                LinkTarget::Dest(dest) => {
-                    let url = || dest.as_url().map(|url| url.clone().into_inner());
-                    body.linked(dest.clone(), alt.or_else(url))
-                }
-                LinkTarget::Label(label) => {
-                    let elem = engine.introspector.query_label(*label).at(self.span())?;
-                    let dest = Destination::Location(elem.location().unwrap());
-                    body.linked(dest, alt)
-                }
-            }
-        })
     }
 }
 

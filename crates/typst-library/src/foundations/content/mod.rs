@@ -785,7 +785,7 @@ impl Repr for StyledElem {
 }
 
 /// An element that associates the body of a link with the destination.
-#[elem(Show, Locatable)]
+#[elem(Locatable)]
 pub struct LinkMarker {
     /// The content.
     #[required]
@@ -794,12 +794,6 @@ pub struct LinkMarker {
     pub dest: Destination,
     #[required]
     pub alt: Option<EcoString>,
-}
-
-impl Show for Packed<LinkMarker> {
-    fn show(&self, _: &mut Engine, _: StyleChain) -> SourceResult<Content> {
-        Ok(self.body.clone())
-    }
 }
 
 impl<T: NativeElement> IntoValue for T {

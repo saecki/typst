@@ -1,6 +1,4 @@
-use crate::diag::SourceResult;
-use crate::engine::Engine;
-use crate::foundations::{elem, Content, Packed, Show, StyleChain};
+use crate::foundations::{elem, Content};
 use crate::introspection::Locatable;
 
 /// Hides content without affecting layout.
@@ -15,7 +13,7 @@ use crate::introspection::Locatable;
 /// Hello Jane \
 /// #hide[Hello] Joe
 /// ```
-#[elem(Locatable, Show)]
+#[elem(Locatable)]
 pub struct HideElem {
     /// The content to hide.
     #[required]
@@ -25,11 +23,4 @@ pub struct HideElem {
     #[internal]
     #[ghost]
     pub hidden: bool,
-}
-
-impl Show for Packed<HideElem> {
-    #[typst_macros::time(name = "hide", span = self.span())]
-    fn show(&self, _: &mut Engine, _: StyleChain) -> SourceResult<Content> {
-        Ok(self.body.clone().set(HideElem::hidden, true))
-    }
 }

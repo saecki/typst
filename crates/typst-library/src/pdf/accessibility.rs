@@ -4,14 +4,12 @@ use ecow::EcoString;
 use typst_macros::{cast, elem, func, Cast};
 use typst_utils::NonZeroExt;
 
-use crate::diag::SourceResult;
-use crate::engine::Engine;
-use crate::foundations::{Content, NativeElement, Packed, Show, Smart, StyleChain};
+use crate::foundations::{Content, NativeElement, Smart};
 use crate::introspection::Locatable;
 use crate::model::TableCell;
 
 // TODO: docs
-#[elem(Locatable, Show)]
+#[elem(Locatable)]
 pub struct PdfTagElem {
     #[default(PdfTagKind::NonStruct)]
     pub kind: PdfTagKind,
@@ -26,13 +24,6 @@ pub struct PdfTagElem {
     /// The content to underline.
     #[required]
     pub body: Content,
-}
-
-impl Show for Packed<PdfTagElem> {
-    #[typst_macros::time(name = "pdf.tag", span = self.span())]
-    fn show(&self, _: &mut Engine, _: StyleChain) -> SourceResult<Content> {
-        Ok(self.body.clone())
-    }
 }
 
 // TODO: docs
@@ -183,7 +174,7 @@ pub enum ListNumbering {
 
 /// Mark content as a PDF artifact.
 /// TODO: maybe generalize this and use it to mark html elements with `aria-hidden="true"`?
-#[elem(Locatable, Show)]
+#[elem(Locatable)]
 pub struct ArtifactElem {
     /// The artifact kind.
     #[default(ArtifactKind::Other)]
@@ -205,13 +196,6 @@ pub enum ArtifactKind {
     /// Other artifacts.
     #[default]
     Other,
-}
-
-impl Show for Packed<ArtifactElem> {
-    #[typst_macros::time(name = "pdf.artifact", span = self.span())]
-    fn show(&self, _: &mut Engine, _: StyleChain) -> SourceResult<Content> {
-        Ok(self.body.clone())
-    }
 }
 
 // TODO: feature gate

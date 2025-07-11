@@ -1,14 +1,9 @@
-use crate::diag::SourceResult;
-use crate::engine::Engine;
-use crate::foundations::{
-    elem, Content, NativeElement, Packed, Show, Smart, StyleChain, TargetElem,
-};
-use crate::html::{tag, HtmlElem};
 use crate::introspection::Locatable;
-use crate::layout::{Em, Length};
-use crate::text::{FontMetrics, TextElem, TextSize};
 use ttf_parser::Tag;
-use typst_library::text::ScriptMetrics;
+
+use crate::foundations::{elem, Content, Smart};
+use crate::layout::{Em, Length};
+use crate::text::{FontMetrics, ScriptMetrics, TextSize};
 
 /// Renders text in subscript.
 ///
@@ -18,7 +13,7 @@ use typst_library::text::ScriptMetrics;
 /// ```example
 /// Revenue#sub[yearly]
 /// ```
-#[elem(title = "Subscript", Locatable, Show)]
+#[elem(title = "Subscript", Locatable)]
 pub struct SubElem {
     /// Whether to create artificial subscripts by lowering and scaling down
     /// regular glyphs.
@@ -65,29 +60,6 @@ pub struct SubElem {
     pub body: Content,
 }
 
-impl Show for Packed<SubElem> {
-    #[typst_macros::time(name = "sub", span = self.span())]
-    fn show(&self, _: &mut Engine, styles: StyleChain) -> SourceResult<Content> {
-        let body = self.body.clone();
-
-        if styles.get(TargetElem::target).is_html() {
-            return Ok(HtmlElem::new(tag::sub)
-                .with_body(Some(body))
-                .pack()
-                .spanned(self.span()));
-        }
-
-        show_script(
-            styles,
-            body,
-            self.typographic.get(styles),
-            self.baseline.get(styles),
-            self.size.get(styles),
-            ScriptKind::Sub,
-        )
-    }
-}
-
 /// Renders text in superscript.
 ///
 /// The text is rendered smaller and its baseline is raised.
@@ -96,7 +68,7 @@ impl Show for Packed<SubElem> {
 /// ```example
 /// 1#super[st] try!
 /// ```
-#[elem(title = "Superscript", Locatable, Show)]
+#[elem(title = "Superscript", Locatable)]
 pub struct SuperElem {
     /// Whether to create artificial superscripts by raising and scaling down
     /// regular glyphs.
@@ -145,49 +117,6 @@ pub struct SuperElem {
     /// The text to display in superscript.
     #[required]
     pub body: Content,
-}
-
-impl Show for Packed<SuperElem> {
-    #[typst_macros::time(name = "super", span = self.span())]
-    fn show(&self, _: &mut Engine, styles: StyleChain) -> SourceResult<Content> {
-        let body = self.body.clone();
-
-        if styles.get(TargetElem::target).is_html() {
-            return Ok(HtmlElem::new(tag::sup)
-                .with_body(Some(body))
-                .pack()
-                .spanned(self.span()));
-        }
-
-        show_script(
-            styles,
-            body,
-            self.typographic.get(styles),
-            self.baseline.get(styles),
-            self.size.get(styles),
-            ScriptKind::Super,
-        )
-    }
-}
-
-fn show_script(
-    styles: StyleChain,
-    body: Content,
-    typographic: bool,
-    baseline: Smart<Length>,
-    size: Smart<TextSize>,
-    kind: ScriptKind,
-) -> SourceResult<Content> {
-    let font_size = styles.resolve(TextElem::size);
-    Ok(body.set(
-        TextElem::shift_settings,
-        Some(ShiftSettings {
-            typographic,
-            shift: baseline.map(|l| -Em::from_length(l, font_size)),
-            size: size.map(|t| Em::from_length(t.0, font_size)),
-            kind,
-        }),
-    ))
 }
 
 /// Configuration values for sub- or superscript text.
