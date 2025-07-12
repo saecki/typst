@@ -45,10 +45,10 @@ pub(crate) fn handle_start(
 
     if let Some(artifact) = elem.to_packed::<ArtifactElem>() {
         let kind = artifact.kind.get(StyleChain::default());
-        start_artifact(gc, surface, loc, kind);
+        push_artifact(gc, surface, loc, kind);
         return Ok(());
     } else if let Some(_) = elem.to_packed::<RepeatElem>() {
-        start_artifact(gc, surface, loc, ArtifactKind::Other);
+        push_artifact(gc, surface, loc, ArtifactKind::Other);
         return Ok(());
     }
 
@@ -107,7 +107,7 @@ pub(crate) fn handle_start(
             // first page. Maybe it should be the cell on the last page, but that
             // would require more changes in the layouting code, or a pre-pass
             // on the frames to figure out if there are other footers following.
-            start_artifact(gc, surface, loc, ArtifactKind::Other);
+            push_artifact(gc, surface, loc, ArtifactKind::Other);
         } else {
             push_stack(gc, loc, StackEntryKind::TableCell(cell.clone()))?;
         }
@@ -125,29 +125,10 @@ pub(crate) fn handle_start(
     Ok(())
 }
 
-fn push_stack(
-    gc: &mut GlobalContext,
-    loc: Location,
-    kind: StackEntryKind,
-) -> SourceResult<()> {
-    if !gc.tags.context_supports(&kind) {
-        if gc.options.standards.config.validator() == Validator::UA1 {
-            // TODO: error
-        } else {
-            // TODO: warning
-        }
-    }
-
-    gc.tags.stack.push(StackEntry { loc, kind, nodes: Vec::new() });
-
-    Ok(())
-}
-
 pub(crate) fn handle_end(gc: &mut GlobalContext, surface: &mut Surface, loc: Location) {
     if let Some((l, _)) = gc.tags.in_artifact {
         if l == loc {
-            surface.end_tagged();
-            gc.tags.in_artifact = None;
+            pop_artifact(gc, surface);
         }
         return;
     }
@@ -203,6 +184,41 @@ pub(crate) fn handle_end(gc: &mut GlobalContext, surface: &mut Surface, loc: Loc
     };
 
     gc.tags.push(node);
+}
+
+fn push_stack(
+    gc: &mut GlobalContext,
+    loc: Location,
+    kind: StackEntryKind,
+) -> SourceResult<()> {
+    if !gc.tags.context_supports(&kind) {
+        if gc.options.standards.config.validator() == Validator::UA1 {
+            // TODO: error
+        } else {
+            // TODO: warning
+        }
+    }
+
+    gc.tags.stack.push(StackEntry { loc, kind, nodes: Vec::new() });
+
+    Ok(())
+}
+
+fn push_artifact(
+    gc: &mut GlobalContext,
+    surface: &mut Surface,
+    loc: Location,
+    kind: ArtifactKind,
+) {
+    let ty = artifact_type(kind);
+    let id = surface.start_tagged(ContentTag::Artifact(ty));
+    gc.tags.push(TagNode::Leaf(id));
+    gc.tags.in_artifact = Some((loc, kind));
+}
+
+fn pop_artifact(gc: &mut GlobalContext, surface: &mut Surface) {
+    surface.end_tagged();
+    gc.tags.in_artifact = None;
 }
 
 pub(crate) fn page_start(gc: &mut GlobalContext, surface: &mut Surface) {
@@ -452,6 +468,17 @@ pub(crate) fn start_span<'a, 'b>(
     start_content(gc, surface, ContentTag::Span(span))
 }
 
+/// Returns a [`TagHandle`] that automatically calls [`Surface::end_tagged`]
+/// when dropped.
+pub(crate) fn start_artifact<'a, 'b>(
+    gc: &mut GlobalContext,
+    surface: &'b mut Surface<'a>,
+    kind: ArtifactKind,
+) -> TagHandle<'a, 'b> {
+    let ty = artifact_type(kind);
+    start_content(gc, surface, ContentTag::Artifact(ty))
+}
+
 fn start_content<'a, 'b>(
     gc: &mut GlobalContext,
     surface: &'b mut Surface<'a>,
@@ -469,18 +496,6 @@ fn start_content<'a, 'b>(
     let id = surface.start_tagged(content);
     gc.tags.push(TagNode::Leaf(id));
     TagHandle { surface, started: true }
-}
-
-fn start_artifact(
-    gc: &mut GlobalContext,
-    surface: &mut Surface,
-    loc: Location,
-    kind: ArtifactKind,
-) {
-    let ty = artifact_type(kind);
-    let id = surface.start_tagged(ContentTag::Artifact(ty));
-    gc.tags.push(TagNode::Leaf(id));
-    gc.tags.in_artifact = Some((loc, kind));
 }
 
 fn artifact_type(kind: ArtifactKind) -> ArtifactType {
