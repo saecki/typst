@@ -415,7 +415,7 @@ impl TryFrom<Content> for TableItem {
 ///   [7.34], [57],  [2],
 /// )
 /// ```
-#[elem(name = "header", title = "Table Header", Locatable)]
+#[elem(name = "header", title = "Table Header")]
 pub struct TableHeader {
     /// Whether this header should be repeated across pages.
     #[default(true)]
@@ -445,7 +445,7 @@ pub struct TableHeader {
 /// totals, or other information that should be visible on every page.
 ///
 /// No other table cells may be placed after the footer.
-#[elem(name = "footer", title = "Table Footer", Locatable)]
+#[elem(name = "footer", title = "Table Footer")]
 pub struct TableFooter {
     /// Whether this footer should be repeated across pages.
     #[default(true)]
@@ -488,7 +488,7 @@ pub struct TableFooter {
 ///   [19:00], [Day 1 Attendee Mixer],
 /// )
 /// ```
-#[elem(name = "hline", title = "Table Horizontal Line", Locatable)]
+#[elem(name = "hline", title = "Table Horizontal Line")]
 pub struct TableHLine {
     /// The row above which the horizontal line is placed (zero-indexed).
     /// Functions identically to the `y` field in [`grid.hline`]($grid.hline.y).
@@ -532,7 +532,7 @@ pub struct TableHLine {
 /// use the [table's `stroke`]($table.stroke) field or [`table.cell`'s
 /// `stroke`]($table.cell.stroke) field instead if the line you want to place is
 /// part of all your tables' designs.
-#[elem(name = "vline", title = "Table Vertical Line", Locatable)]
+#[elem(name = "vline", title = "Table Vertical Line")]
 pub struct TableVLine {
     /// The column before which the horizontal line is placed (zero-indexed).
     /// Functions identically to the `x` field in [`grid.vline`]($grid.vline).

@@ -448,7 +448,7 @@ impl TryFrom<Content> for GridItem {
 /// If `repeat` is set to `true`, the header will be repeated across pages. For
 /// an example, refer to the [`table.header`]($table.header) element and the
 /// [`grid.stroke`]($grid.stroke) parameter.
-#[elem(name = "header", title = "Grid Header", Locatable)]
+#[elem(name = "header", title = "Grid Header")]
 pub struct GridHeader {
     /// Whether this header should be repeated across pages.
     #[default(true)]
@@ -476,7 +476,7 @@ pub struct GridHeader {
 /// itself on every page of the table.
 ///
 /// No other grid cells may be placed after the footer.
-#[elem(name = "footer", title = "Grid Footer", Locatable)]
+#[elem(name = "footer", title = "Grid Footer")]
 pub struct GridFooter {
     /// Whether this footer should be repeated across pages.
     #[default(true)]
