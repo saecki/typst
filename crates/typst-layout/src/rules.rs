@@ -496,7 +496,7 @@ const OUTLINE_ENTRY_RULE: ShowFn<OutlineEntry> = |elem, engine, styles| {
         let close = quotes.double_close;
         eco_format!("{prefix} {open}{body}{close} {page_str} {page_nr}",)
     };
-    let inner = elem.inner(context, span, body, page)?;
+    let inner = elem.build_inner(context, span, body, page)?;
     let block = if elem.element.is::<EquationElem>() {
         let body = prefix.unwrap_or_default() + inner;
         BlockElem::new()

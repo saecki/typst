@@ -502,6 +502,47 @@ impl OutlineEntry {
     #[func(contextual)]
     pub fn inner(
         &self,
+        engine: &mut Engine,
+        context: Tracked<Context>,
+        span: Span,
+    ) -> SourceResult<Content> {
+        let body = self.body().at(span)?;
+        let page = self.page(engine, context, span)?;
+        self.build_inner(context, span, body, page)
+    }
+
+    /// The content which is displayed in place of the referred element at its
+    /// entry in the outline. For a heading, this is its
+    /// [`body`]($heading.body); for a figure a caption and for equations, it is
+    /// empty.
+    #[func]
+    pub fn body(&self) -> StrResult<Content> {
+        Ok(self.outlinable()?.body())
+    }
+
+    /// The page number of this entry's element, formatted with the numbering
+    /// set for the referenced page.
+    #[func(contextual)]
+    pub fn page(
+        &self,
+        engine: &mut Engine,
+        context: Tracked<Context>,
+        span: Span,
+    ) -> SourceResult<Content> {
+        let loc = self.element_location().at(span)?;
+        let styles = context.styles().at(span)?;
+        let numbering = engine
+            .introspector
+            .page_numbering(loc)
+            .cloned()
+            .unwrap_or_else(|| NumberingPattern::from_str("1").unwrap().into());
+        Counter::new(CounterKey::Page).display_at_loc(engine, loc, styles, &numbering)
+    }
+}
+
+impl OutlineEntry {
+    pub fn build_inner(
+        &self,
         context: Tracked<Context>,
         span: Span,
         body: Content,
@@ -556,36 +597,6 @@ impl OutlineEntry {
         Ok(Content::sequence(seq))
     }
 
-    /// The content which is displayed in place of the referred element at its
-    /// entry in the outline. For a heading, this is its
-    /// [`body`]($heading.body); for a figure a caption and for equations, it is
-    /// empty.
-    #[func]
-    pub fn body(&self) -> StrResult<Content> {
-        Ok(self.outlinable()?.body())
-    }
-
-    /// The page number of this entry's element, formatted with the numbering
-    /// set for the referenced page.
-    #[func(contextual)]
-    pub fn page(
-        &self,
-        engine: &mut Engine,
-        context: Tracked<Context>,
-        span: Span,
-    ) -> SourceResult<Content> {
-        let loc = self.element_location().at(span)?;
-        let styles = context.styles().at(span)?;
-        let numbering = engine
-            .introspector
-            .page_numbering(loc)
-            .cloned()
-            .unwrap_or_else(|| NumberingPattern::from_str("1").unwrap().into());
-        Counter::new(CounterKey::Page).display_at_loc(engine, loc, styles, &numbering)
-    }
-}
-
-impl OutlineEntry {
     fn outlinable(&self) -> StrResult<&dyn Outlinable> {
         self.element
             .with::<dyn Outlinable>()
