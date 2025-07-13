@@ -6,8 +6,8 @@ use krilla::configure::Validator;
 use krilla::page::Page;
 use krilla::surface::Surface;
 use krilla::tagging::{
-    ArtifactType, ContentTag, Identifier, Node, SpanTag, TableDataCell, Tag, TagBuilder,
-    TagGroup, TagKind, TagTree,
+    ArtifactType, ContentTag, Identifier, ListNumbering, Node, SpanTag, TableDataCell,
+    Tag, TagBuilder, TagGroup, TagKind, TagTree,
 };
 use typst_library::diag::SourceResult;
 use typst_library::foundations::{
@@ -17,17 +17,21 @@ use typst_library::foundations::{
 use typst_library::introspection::Location;
 use typst_library::layout::RepeatElem;
 use typst_library::model::{
-    Destination, FigureCaption, FigureElem, HeadingElem, Outlinable, OutlineBody,
+    Destination, EnumElem, FigureCaption, FigureElem, HeadingElem, ListElem, Outlinable,
     OutlineEntry, TableCell, TableElem,
 };
-use typst_library::pdf::{ArtifactElem, ArtifactKind, PdfTagElem, PdfTagKind};
+use typst_library::pdf::{
+    ArtifactElem, ArtifactKind, PdfMarkerTag, PdfMarkerTagKind, PdfTagElem, PdfTagKind,
+};
 use typst_library::visualize::ImageElem;
 
 use crate::convert::GlobalContext;
 use crate::link::LinkAnnotation;
+use crate::tags::list::ListCtx;
 use crate::tags::outline::OutlineCtx;
 use crate::tags::table::TableCtx;
 
+mod list;
 mod outline;
 mod table;
 
@@ -58,15 +62,31 @@ pub(crate) fn handle_start(
             PdfTagKind::Part => TagKind::Part.into(),
             _ => todo!(),
         }
-    } else if let Some(heading) = elem.to_packed::<HeadingElem>() {
-        let level = heading.level().try_into().unwrap_or(NonZeroU32::MAX);
-        let name = heading.body.plain_text().to_string();
-        TagKind::Hn(level, Some(name)).into()
-    } else if let Some(_) = elem.to_packed::<OutlineBody>() {
-        push_stack(gc, loc, StackEntryKind::Outline(OutlineCtx::new()))?;
-        return Ok(());
+    } else if let Some(tag) = elem.to_packed::<PdfMarkerTag>() {
+        match tag.kind {
+            PdfMarkerTagKind::OutlineBody => {
+                push_stack(gc, loc, StackEntryKind::Outline(OutlineCtx::new()))?;
+                return Ok(());
+            }
+            PdfMarkerTagKind::ListItemLabel => {
+                push_stack(gc, loc, StackEntryKind::ListItemLabel)?;
+                return Ok(());
+            }
+            PdfMarkerTagKind::ListItemBody => {
+                push_stack(gc, loc, StackEntryKind::ListItemBody)?;
+                return Ok(());
+            }
+        }
     } else if let Some(entry) = elem.to_packed::<OutlineEntry>() {
         push_stack(gc, loc, StackEntryKind::OutlineEntry(entry.clone()))?;
+        return Ok(());
+    } else if let Some(_list) = elem.to_packed::<ListElem>() {
+        let numbering = ListNumbering::Circle; // TODO: infer numbering from `list.marker`
+        push_stack(gc, loc, StackEntryKind::List(ListCtx::new(numbering)))?;
+        return Ok(());
+    } else if let Some(_enumeration) = elem.to_packed::<EnumElem>() {
+        let numbering = ListNumbering::Decimal; // TODO: infer numbering from `enum.numbering`
+        push_stack(gc, loc, StackEntryKind::List(ListCtx::new(numbering)))?;
         return Ok(());
     } else if let Some(_) = elem.to_packed::<FigureElem>() {
         let alt = None; // TODO
@@ -112,6 +132,10 @@ pub(crate) fn handle_start(
             push_stack(gc, loc, StackEntryKind::TableCell(cell.clone()))?;
         }
         return Ok(());
+    } else if let Some(heading) = elem.to_packed::<HeadingElem>() {
+        let level = heading.level().try_into().unwrap_or(NonZeroU32::MAX);
+        let name = heading.body.plain_text().to_string();
+        TagKind::Hn(level, Some(name)).into()
     } else if let Some(link) = elem.to_packed::<LinkMarker>() {
         let link_id = gc.tags.next_link_id();
         push_stack(gc, loc, StackEntryKind::Link(link_id, link.clone()))?;
@@ -169,6 +193,17 @@ pub(crate) fn handle_end(gc: &mut GlobalContext, surface: &mut Surface, loc: Loc
             };
 
             table_ctx.insert(&cell, entry.nodes);
+            return;
+        }
+        StackEntryKind::List(list) => list.build_list(entry.nodes),
+        StackEntryKind::ListItemLabel => {
+            let list_ctx = gc.tags.parent_list().expect("parent list");
+            list_ctx.push_label(entry.nodes);
+            return;
+        }
+        StackEntryKind::ListItemBody => {
+            let list_ctx = gc.tags.parent_list().expect("parent list");
+            list_ctx.push_body(entry.nodes);
             return;
         }
         StackEntryKind::Link(_, link) => {
@@ -309,6 +344,10 @@ impl Tags {
         self.parent()?.as_table_mut()
     }
 
+    pub(crate) fn parent_list(&mut self) -> Option<&mut ListCtx> {
+        self.parent()?.as_list_mut()
+    }
+
     pub(crate) fn find_parent_link(&self) -> Option<(LinkId, &Packed<LinkMarker>)> {
         self.stack.iter().rev().find_map(|entry| entry.kind.as_link())
     }
@@ -378,6 +417,9 @@ pub(crate) enum StackEntryKind {
     OutlineEntry(Packed<OutlineEntry>),
     Table(TableCtx),
     TableCell(Packed<TableCell>),
+    List(ListCtx),
+    ListItemLabel,
+    ListItemBody,
     Link(LinkId, Packed<LinkMarker>),
 }
 
@@ -400,6 +442,14 @@ impl StackEntryKind {
 
     pub(crate) fn as_table_mut(&mut self) -> Option<&mut TableCtx> {
         if let Self::Table(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn as_list_mut(&mut self) -> Option<&mut ListCtx> {
+        if let Self::List(v) = self {
             Some(v)
         } else {
             None

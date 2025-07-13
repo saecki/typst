@@ -262,3 +262,43 @@ impl TableHeaderScope {
         }
     }
 }
+
+// Used to delimit content for tagged PDF.
+#[elem(Locatable)]
+pub struct PdfMarkerTag {
+    #[required]
+    pub kind: PdfMarkerTagKind,
+    #[required]
+    pub body: Content,
+}
+
+macro_rules! pdf_marker_tag {
+    ($(#[doc = $doc:expr] $variant:ident,)+) => {
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Cast)]
+        pub enum PdfMarkerTagKind {
+            $(
+                #[doc = $doc]
+                $variant
+            ),+
+        }
+
+        impl PdfMarkerTag {
+            $(
+                #[doc = $doc]
+                #[allow(non_snake_case)]
+                pub fn $variant(body: Content) -> Content {
+                    Self::new(PdfMarkerTagKind::$variant, body).pack()
+                }
+            )+
+        }
+    }
+}
+
+pdf_marker_tag! {
+    /// `TOC`
+    OutlineBody,
+    /// `Lbl` (marker) of the list item
+    ListItemLabel,
+    /// `LBody` of the enum item
+    ListItemBody,
+}

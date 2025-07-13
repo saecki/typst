@@ -20,11 +20,12 @@ use typst_library::math::EquationElem;
 use typst_library::model::{
     Attribution, BibliographyElem, CiteElem, CiteGroup, CslSource, Destination, EmphElem,
     EnumElem, FigureCaption, FigureElem, FootnoteElem, FootnoteEntry, HeadingElem,
-    LinkElem, LinkTarget, ListElem, Outlinable, OutlineBody, OutlineElem, OutlineEntry,
-    ParElem, ParbreakElem, QuoteElem, RefElem, StrongElem, TableCell, TableElem,
-    TermsElem, Works,
+    LinkElem, LinkTarget, ListElem, Outlinable, OutlineElem, OutlineEntry, ParElem,
+    ParbreakElem, QuoteElem, RefElem, StrongElem, TableCell, TableElem, TermsElem, Works,
 };
-use typst_library::pdf::{ArtifactElem, EmbedElem, PdfTagElem};
+use typst_library::pdf::{
+    ArtifactElem, EmbedElem, PdfMarkerTag, PdfMarkerTagKind, PdfTagElem,
+};
 use typst_library::text::{
     DecoLine, Decoration, HighlightElem, ItalicToggle, LinebreakElem, LocalName,
     OverlineElem, RawElem, RawLine, ScriptKind, ShiftSettings, Smallcaps, SmallcapsElem,
@@ -56,7 +57,6 @@ pub fn register(rules: &mut NativeRuleMap) {
     rules.register(Paged, FOOTNOTE_RULE);
     rules.register(Paged, FOOTNOTE_ENTRY_RULE);
     rules.register(Paged, OUTLINE_RULE);
-    rules.register(Paged, OUTLINE_BODY_RULE);
     rules.register(Paged, OUTLINE_ENTRY_RULE);
     rules.register(Paged, REF_RULE);
     rules.register(Paged, CITE_GROUP_RULE);
@@ -108,6 +108,7 @@ pub fn register(rules: &mut NativeRuleMap) {
     rules.register(Paged, EMBED_RULE);
     rules.register(Paged, PDF_TAG_RULE);
     rules.register(Paged, PDF_ARTIFACT_RULE);
+    rules.register(Paged, PDF_MARKER_TAG_RULE);
 }
 
 const STRONG_RULE: ShowFn<StrongElem> = |elem, _, styles| {
@@ -466,12 +467,13 @@ const OUTLINE_RULE: ShowFn<OutlineElem> = |elem, engine, styles| {
     }
 
     // Wrap the entries into a marker for pdf tagging.
-    seq.push(OutlineBody::new(Content::sequence(entries)).pack());
+    seq.push(
+        PdfMarkerTag::new(PdfMarkerTagKind::OutlineBody, Content::sequence(entries))
+            .pack(),
+    );
 
     Ok(Content::sequence(seq))
 };
-
-const OUTLINE_BODY_RULE: ShowFn<OutlineBody> = |elem, _, _| Ok(elem.body.clone());
 
 const OUTLINE_ENTRY_RULE: ShowFn<OutlineEntry> = |elem, engine, styles| {
     let span = elem.span();
@@ -931,3 +933,5 @@ const EMBED_RULE: ShowFn<EmbedElem> = |_, _, _| Ok(Content::empty());
 const PDF_TAG_RULE: ShowFn<PdfTagElem> = |elem, _, _| Ok(elem.body.clone());
 
 const PDF_ARTIFACT_RULE: ShowFn<ArtifactElem> = |elem, _, _| Ok(elem.body.clone());
+
+const PDF_MARKER_TAG_RULE: ShowFn<PdfMarkerTag> = |elem, _, _| Ok(elem.body.clone());
