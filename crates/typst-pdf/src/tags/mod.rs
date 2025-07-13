@@ -20,9 +20,7 @@ use typst_library::model::{
     Destination, EnumElem, FigureCaption, FigureElem, HeadingElem, ListElem, Outlinable,
     OutlineEntry, TableCell, TableElem,
 };
-use typst_library::pdf::{
-    ArtifactElem, ArtifactKind, PdfMarkerTag, PdfMarkerTagKind, PdfTagElem, PdfTagKind,
-};
+use typst_library::pdf::{ArtifactElem, ArtifactKind, PdfMarkerTag, PdfMarkerTagKind};
 use typst_library::visualize::ImageElem;
 
 use crate::convert::GlobalContext;
@@ -56,13 +54,7 @@ pub(crate) fn handle_start(
         return Ok(());
     }
 
-    let tag: Tag = if let Some(pdf_tag) = elem.to_packed::<PdfTagElem>() {
-        let kind = pdf_tag.kind.get_ref(StyleChain::default());
-        match kind {
-            PdfTagKind::Part => TagKind::Part.into(),
-            _ => todo!(),
-        }
-    } else if let Some(tag) = elem.to_packed::<PdfMarkerTag>() {
+    let tag: Tag = if let Some(tag) = elem.to_packed::<PdfMarkerTag>() {
         match tag.kind {
             PdfMarkerTagKind::OutlineBody => {
                 push_stack(gc, loc, StackEntryKind::Outline(OutlineCtx::new()))?;

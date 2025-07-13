@@ -23,9 +23,7 @@ use typst_library::model::{
     LinkElem, LinkTarget, ListElem, Outlinable, OutlineElem, OutlineEntry, ParElem,
     ParbreakElem, QuoteElem, RefElem, StrongElem, TableCell, TableElem, TermsElem, Works,
 };
-use typst_library::pdf::{
-    ArtifactElem, EmbedElem, PdfMarkerTag, PdfMarkerTagKind, PdfTagElem,
-};
+use typst_library::pdf::{ArtifactElem, EmbedElem, PdfMarkerTag, PdfMarkerTagKind};
 use typst_library::text::{
     DecoLine, Decoration, HighlightElem, ItalicToggle, LinebreakElem, LocalName,
     OverlineElem, RawElem, RawLine, ScriptKind, ShiftSettings, Smallcaps, SmallcapsElem,
@@ -106,7 +104,6 @@ pub fn register(rules: &mut NativeRuleMap) {
 
     // PDF.
     rules.register(Paged, EMBED_RULE);
-    rules.register(Paged, PDF_TAG_RULE);
     rules.register(Paged, PDF_ARTIFACT_RULE);
     rules.register(Paged, PDF_MARKER_TAG_RULE);
 }
@@ -929,8 +926,6 @@ const EQUATION_RULE: ShowFn<EquationElem> = |elem, _, styles| {
 };
 
 const EMBED_RULE: ShowFn<EmbedElem> = |_, _, _| Ok(Content::empty());
-
-const PDF_TAG_RULE: ShowFn<PdfTagElem> = |elem, _, _| Ok(elem.body.clone());
 
 const PDF_ARTIFACT_RULE: ShowFn<ArtifactElem> = |elem, _, _| Ok(elem.body.clone());
 
