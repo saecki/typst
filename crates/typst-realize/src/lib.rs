@@ -799,7 +799,43 @@ fn finish_innermost_grouping(s: &mut State) -> SourceResult<()> {
 
     // Trim trailing non-trigger elements.
     let trimmed = s.sink[start..].trim_end_matches(|(c, _)| !(rule.trigger)(c, s));
-    let end = start + trimmed.len();
+    let mut end = start + trimmed.len();
+
+    let mut tag_balance = 0;
+    for (c, _) in s.sink[start..end].iter() {
+        if let Some(tag) = c.to_packed::<TagElem>() {
+            tag_balance += match tag.tag {
+                Tag::Start(_) => 1,
+                Tag::End(..) => -1,
+            };
+        }
+    }
+    if tag_balance != 0 {
+        dbg!(s.sink[end..].len());
+        for (i, (c, _)) in s.sink[end..].iter().enumerate() {
+            if let Some(tag) = c.to_packed::<TagElem>() {
+                match tag.tag {
+                    Tag::Start(_) => {
+                        if tag_balance == 0 {
+                            end += i;
+                            dbg!(end);
+                            break;
+                        }
+                        tag_balance += 1;
+                    }
+                    Tag::End(..) => {
+                        tag_balance -= 1;
+                        if tag_balance == 0 {
+                            end += i + 1;
+                            dbg!(end);
+                            break;
+                        }
+                    }
+                };
+            }
+        }
+    }
+
     let tail = s.store_slice(&s.sink[end..]);
     s.sink.truncate(end);
 

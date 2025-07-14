@@ -1,4 +1,5 @@
 use std::cell::OnceCell;
+use std::collections::HashMap;
 use std::num::NonZeroU32;
 
 use ecow::EcoString;
@@ -18,7 +19,7 @@ use typst_library::introspection::Location;
 use typst_library::layout::RepeatElem;
 use typst_library::model::{
     Destination, EnumElem, FigureCaption, FigureElem, HeadingElem, ListElem, Outlinable,
-    OutlineEntry, TableCell, TableElem, TermsElem,
+    OutlineEntry, ParElem, TableCell, TableElem, TermsElem,
 };
 use typst_library::pdf::{ArtifactElem, ArtifactKind, PdfMarkerTag, PdfMarkerTagKind};
 use typst_library::visualize::ImageElem;
@@ -38,12 +39,21 @@ pub(crate) fn handle_start(
     surface: &mut Surface,
     elem: &Content,
 ) -> SourceResult<()> {
+    let loc = elem.location().expect("elem to be locatable");
+    let elem_id = gc.tags.tag_map.len();
+    let name = elem.elem().name();
+    for _ in 0..gc.tags.tag_indent {
+        eprint!("  ");
+    }
+    eprintln!("\x1b[33mSTART\x1b[0m {elem_id} {name}");
+    let indent = gc.tags.tag_indent;
+    gc.tags.tag_indent += 1;
+    gc.tags.tag_map.insert(loc, (indent, elem_id, name));
+
     if gc.tags.in_artifact.is_some() {
         // Don't nest artifacts
         return Ok(());
     }
-
-    let loc = elem.location().expect("elem to be locatable");
 
     if let Some(artifact) = elem.to_packed::<ArtifactElem>() {
         let kind = artifact.kind.get(StyleChain::default());
@@ -137,6 +147,8 @@ pub(crate) fn handle_start(
         let level = heading.level().try_into().unwrap_or(NonZeroU32::MAX);
         let name = heading.body.plain_text().to_string();
         TagKind::Hn(level, Some(name)).into()
+    } else if let Some(_) = elem.to_packed::<ParElem>() {
+        TagKind::P.into()
     } else if let Some(link) = elem.to_packed::<LinkMarker>() {
         let link_id = gc.tags.next_link_id();
         push_stack(gc, loc, StackEntryKind::Link(link_id, link.clone()))?;
@@ -151,6 +163,21 @@ pub(crate) fn handle_start(
 }
 
 pub(crate) fn handle_end(gc: &mut GlobalContext, surface: &mut Surface, loc: Location) {
+    if let Some((indent, elem_id, name)) = gc.tags.tag_map.get(&loc) {
+        gc.tags.tag_indent -= 1;
+        for _ in 0..gc.tags.tag_indent {
+            eprint!("  ");
+        }
+        if *indent == gc.tags.tag_indent {
+            eprintln!("\x1b[32mEND\x1b[0m   {elem_id} {name}");
+        } else {
+            gc.tags.tag_indent += 1;
+            eprintln!("\x1b[31mMISMATCHED\x1b[0m {elem_id} {name}");
+        }
+    } else {
+        eprintln!("\x1b[31mUNMATCHED\x1b[0m");
+    };
+
     if let Some((l, _)) = gc.tags.in_artifact {
         if l == loc {
             pop_artifact(gc, surface);
@@ -303,6 +330,9 @@ pub(crate) struct Tags {
 
     /// The output.
     pub(crate) tree: Vec<TagNode>,
+
+    tag_map: HashMap<Location, (u32, usize, &'static str)>,
+    tag_indent: u32,
 }
 
 impl Tags {
@@ -315,6 +345,9 @@ impl Tags {
             tree: Vec::new(),
             link_id: LinkId(0),
             table_id: TableId(0),
+
+            tag_map: HashMap::new(),
+            tag_indent: 0,
         }
     }
 
