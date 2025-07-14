@@ -69,6 +69,7 @@ pub(crate) fn handle_start(
                 push_stack(gc, loc, StackEntryKind::ListItemBody)?;
                 return Ok(());
             }
+            PdfMarkerTagKind::Label => TagKind::Lbl.into(),
         }
     } else if let Some(entry) = elem.to_packed::<OutlineEntry>() {
         push_stack(gc, loc, StackEntryKind::OutlineEntry(entry.clone()))?;

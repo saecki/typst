@@ -21,6 +21,7 @@ use crate::layout::{
     RepeatElem, Sides,
 };
 use crate::model::{HeadingElem, NumberingPattern, ParElem, Refable};
+use crate::pdf::PdfMarkerTag;
 use crate::text::{LocalName, SpaceElem, TextElem};
 
 /// A table of contents, figures, or other elements.
@@ -493,7 +494,7 @@ impl OutlineEntry {
         let styles = context.styles().at(span)?;
         let numbers =
             outlinable.counter().display_at_loc(engine, loc, styles, numbering)?;
-        Ok(Some(outlinable.prefix(numbers)))
+        Ok(Some(PdfMarkerTag::Label(outlinable.prefix(numbers))))
     }
 
     /// Creates the default inner content of the entry.

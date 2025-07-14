@@ -275,7 +275,7 @@ const HEADING_RULE: ShowFn<HeadingElem> = |elem, engine, styles| {
 
         let spacing = HElem::new(SPACING_TO_NUMBERING.into()).with_weak(true).pack();
 
-        realized = numbering + spacing + realized;
+        realized = PdfMarkerTag::Label(numbering) + spacing + realized;
     }
 
     let block = if indent != Abs::zero() {
@@ -477,7 +477,6 @@ const OUTLINE_ENTRY_RULE: ShowFn<OutlineEntry> = |elem, engine, styles| {
     let context = Context::new(None, Some(styles));
     let context = context.track();
 
-    // TODO(accessibility): prefix should be wrapped in a `Lbl` structure element
     let prefix = elem.prefix(engine, context, span)?;
     let body = elem.body().at(span)?;
     let page = elem.page(engine, context, span)?;
