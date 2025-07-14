@@ -132,6 +132,8 @@ macro_rules! pdf_marker_tag {
 pdf_marker_tag! {
     /// `TOC`
     OutlineBody,
+    /// `Figure`
+    FigureBody,
     /// `Lbl` (marker) of the list item
     ListItemLabel,
     /// `LBody` of the enum item

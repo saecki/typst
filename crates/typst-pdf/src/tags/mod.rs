@@ -60,6 +60,7 @@ pub(crate) fn handle_start(
                 push_stack(gc, loc, StackEntryKind::Outline(OutlineCtx::new()))?;
                 return Ok(());
             }
+            PdfMarkerTagKind::FigureBody => TagKind::Figure.into(),
             PdfMarkerTagKind::ListItemLabel => {
                 push_stack(gc, loc, StackEntryKind::ListItemLabel)?;
                 return Ok(());
@@ -81,8 +82,13 @@ pub(crate) fn handle_start(
         push_stack(gc, loc, StackEntryKind::List(ListCtx::new(numbering)))?;
         return Ok(());
     } else if let Some(_) = elem.to_packed::<FigureElem>() {
-        let alt = None; // TODO
-        TagKind::Figure.with_alt_text(alt)
+        // Wrap the figure tag and the sibling caption in a container, if the
+        // caption is contained within the figure like recommended for tables
+        // screen readers might ignore it.
+        // TODO: maybe this could be a `NonStruct` tag?
+        TagKind::P.into()
+    } else if let Some(_) = elem.to_packed::<FigureCaption>() {
+        TagKind::Caption.into()
     } else if let Some(image) = elem.to_packed::<ImageElem>() {
         let alt = image.alt.get_as_ref().map(|s| s.to_string());
 
@@ -98,8 +104,6 @@ pub(crate) fn handle_start(
         } else {
             TagKind::Figure.with_alt_text(alt)
         }
-    } else if let Some(_) = elem.to_packed::<FigureCaption>() {
-        TagKind::Caption.into()
     } else if let Some(table) = elem.to_packed::<TableElem>() {
         let table_id = gc.tags.next_table_id();
         let summary = table.summary.get_as_ref().map(|s| s.to_string());
