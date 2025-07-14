@@ -16,11 +16,12 @@ pub(crate) struct TableCtx {
     pub(crate) id: TableId,
     pub(crate) summary: Option<String>,
     rows: Vec<Vec<GridCell>>,
+    min_width: usize,
 }
 
 impl TableCtx {
     pub(crate) fn new(id: TableId, summary: Option<String>) -> Self {
-        Self { id, summary, rows: Vec::new() }
+        Self { id, summary, rows: Vec::new(), min_width: 0 }
     }
 
     fn get(&self, x: usize, y: usize) -> Option<&TableCtxCell> {
@@ -64,14 +65,15 @@ impl TableCtx {
 
         // Extend the table grid to fit this cell.
         let required_height = y + rowspan.get();
-        let required_width = x + colspan.get();
+        self.min_width = self.min_width.max(x + colspan.get());
         if self.rows.len() < required_height {
             self.rows
-                .resize(required_height, vec![GridCell::Missing; required_width]);
+                .resize(required_height, vec![GridCell::Missing; self.min_width]);
         }
-        let row = &mut self.rows[y];
-        if row.len() < required_width {
-            row.resize_with(required_width, || GridCell::Missing);
+        for row in self.rows.iter_mut() {
+            if row.len() < self.min_width {
+                row.resize_with(self.min_width, || GridCell::Missing);
+            }
         }
 
         // Store references to the cell for all spanned cells.
