@@ -67,7 +67,7 @@ pub fn convert(
 
     document.set_outline(build_outline(&gc));
     document.set_metadata(build_metadata(&gc));
-    document.set_tag_tree(gc.tags.build_tree());
+    document.set_tag_tree(tags::build_tree(&mut gc));
 
     finish(document, gc, options.standards.config)
 }

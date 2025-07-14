@@ -18,7 +18,7 @@ use typst_library::introspection::Location;
 use typst_library::layout::RepeatElem;
 use typst_library::model::{
     Destination, EnumElem, FigureCaption, FigureElem, HeadingElem, ListElem, Outlinable,
-    OutlineEntry, TableCell, TableElem, TermsElem,
+    OutlineEntry, ParElem, TableCell, TableElem, TermsElem,
 };
 use typst_library::pdf::{ArtifactElem, ArtifactKind, PdfMarkerTag, PdfMarkerTagKind};
 use typst_library::visualize::ImageElem;
@@ -136,11 +136,14 @@ pub(crate) fn handle_start(
         let level = heading.level().try_into().unwrap_or(NonZeroU32::MAX);
         let name = heading.body.plain_text().to_string();
         TagKind::Hn(level, Some(name)).into()
+    } else if let Some(_) = elem.to_packed::<ParElem>() {
+        TagKind::P.into()
     } else if let Some(link) = elem.to_packed::<LinkMarker>() {
         let link_id = gc.tags.next_link_id();
         push_stack(gc, loc, StackEntryKind::Link(link_id, link.clone()))?;
         return Ok(());
     } else {
+        eprintln!("ignored {loc:?} {elem:?}");
         return Ok(());
     };
 
@@ -158,9 +161,18 @@ pub(crate) fn handle_end(gc: &mut GlobalContext, surface: &mut Surface, loc: Loc
     }
 
     let Some(entry) = gc.tags.stack.pop_if(|e| e.loc == loc) else {
+        eprintln!(
+            "unmatched {loc:?} {:?}",
+            gc.tags.stack.last().map(|e| (e.loc, &e.kind))
+        );
         return;
     };
+    eprintln!("end {loc:?}");
 
+    pop_stack(gc, entry);
+}
+
+fn pop_stack(gc: &mut GlobalContext, entry: StackEntry) {
     let node = match entry.kind {
         StackEntryKind::Standard(tag) => TagNode::Group(tag, entry.nodes),
         StackEntryKind::Outline(ctx) => ctx.build_outline(entry.nodes),
@@ -226,6 +238,8 @@ fn push_stack(
     loc: Location,
     kind: StackEntryKind,
 ) -> SourceResult<()> {
+    eprintln!("start {loc:?}");
+
     if !gc.tags.context_supports(&kind) {
         if gc.options.standards.config.validator() == Validator::UA1 {
             // TODO: error
@@ -286,6 +300,20 @@ pub(crate) fn add_annotations(
         let annot_id = page.add_tagged_annotation(annot);
         gc.tags.init_placeholder(placeholder, Node::Leaf(annot_id));
     }
+}
+
+pub(crate) fn build_tree(gc: &mut GlobalContext) -> TagTree {
+    // Make sure to handle any unclosed tags.
+    while let Some(entry) = gc.tags.stack.pop() {
+        dbg!(&entry);
+        pop_stack(gc, entry);
+    }
+
+    let children = std::mem::take(&mut gc.tags.tree)
+        .into_iter()
+        .map(|node| gc.tags.resolve_node(node))
+        .collect::<Vec<_>>();
+    TagTree::from(children)
 }
 
 pub(crate) struct Tags {
@@ -358,14 +386,6 @@ impl Tags {
         } else {
             self.tree.push(node);
         }
-    }
-
-    pub(crate) fn build_tree(&mut self) -> TagTree {
-        let children = std::mem::take(&mut self.tree)
-            .into_iter()
-            .map(|node| self.resolve_node(node))
-            .collect::<Vec<_>>();
-        TagTree::from(children)
     }
 
     /// Resolves [`Placeholder`] nodes.
