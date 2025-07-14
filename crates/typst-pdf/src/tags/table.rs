@@ -180,11 +180,7 @@ impl TableCtx {
                         )
                         .into(),
                     };
-
-                    // Wrap content in a paragraph.
-                    // TODO: maybe avoid nested paragraphs?
-                    let par = TagNode::Group(TagKind::P.into(), cell.nodes);
-                    Some(TagNode::Group(tag, vec![par]))
+                    Some(TagNode::Group(tag, cell.nodes))
                 })
                 .collect();
 
@@ -422,7 +418,7 @@ mod tests {
         TagNode::Group(
             TagKind::TH(TableHeaderCell::new(scope).with_headers(TagIdRefs { ids }))
                 .with_id(Some(id)),
-            vec![TagNode::Group(TagKind::P.into(), Vec::new())],
+            Vec::new(),
         )
     }
 
@@ -433,7 +429,7 @@ mod tests {
             .collect();
         TagNode::Group(
             TagKind::TD(TableDataCell::new().with_headers(TagIdRefs { ids })).into(),
-            vec![TagNode::Group(TagKind::P.into(), Vec::new())],
+            Vec::new(),
         )
     }
 
