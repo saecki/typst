@@ -18,7 +18,7 @@ use typst_library::introspection::Location;
 use typst_library::layout::RepeatElem;
 use typst_library::model::{
     Destination, EnumElem, FigureCaption, FigureElem, HeadingElem, ListElem, Outlinable,
-    OutlineEntry, TableCell, TableElem,
+    OutlineEntry, TableCell, TableElem, TermsElem,
 };
 use typst_library::pdf::{ArtifactElem, ArtifactKind, PdfMarkerTag, PdfMarkerTagKind};
 use typst_library::visualize::ImageElem;
@@ -79,6 +79,10 @@ pub(crate) fn handle_start(
         return Ok(());
     } else if let Some(_enumeration) = elem.to_packed::<EnumElem>() {
         let numbering = ListNumbering::Decimal; // TODO: infer numbering from `enum.numbering`
+        push_stack(gc, loc, StackEntryKind::List(ListCtx::new(numbering)))?;
+        return Ok(());
+    } else if let Some(_enumeration) = elem.to_packed::<TermsElem>() {
+        let numbering = ListNumbering::None;
         push_stack(gc, loc, StackEntryKind::List(ListCtx::new(numbering)))?;
         return Ok(());
     } else if let Some(_) = elem.to_packed::<FigureElem>() {

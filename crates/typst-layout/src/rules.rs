@@ -179,9 +179,9 @@ const TERMS_RULE: ShowFn<TermsElem> = |elem, _, styles| {
     for child in elem.children.iter() {
         let mut seq = vec![];
         seq.extend(unpad.clone());
-        seq.push(child.term.clone().strong());
+        seq.push(PdfMarkerTag::ListItemLabel(child.term.clone().strong()));
         seq.push(separator.clone());
-        seq.push(child.description.clone());
+        seq.push(PdfMarkerTag::ListItemBody(child.description.clone()));
 
         // Text in wide term lists shall always turn into paragraphs.
         if !tight {
