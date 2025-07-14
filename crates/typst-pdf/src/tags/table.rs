@@ -12,6 +12,7 @@ use typst_library::pdf::{TableCellKind, TableHeaderScope};
 
 use crate::tags::{TableId, TagNode};
 
+#[derive(Debug)]
 pub(crate) struct TableCtx {
     pub(crate) id: TableId,
     pub(crate) summary: Option<String>,
@@ -252,7 +253,7 @@ impl TableCtx {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 enum GridCell {
     Cell(TableCtxCell),
     Spanned(usize, usize),
@@ -286,7 +287,7 @@ impl GridCell {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct TableCtxCell {
     x: u32,
     y: u32,

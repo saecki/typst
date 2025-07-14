@@ -4,6 +4,7 @@ use typst_library::model::OutlineEntry;
 
 use crate::tags::TagNode;
 
+#[derive(Debug)]
 pub(crate) struct OutlineCtx {
     stack: Vec<OutlineSection>,
 }
@@ -52,6 +53,7 @@ impl OutlineCtx {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct OutlineSection {
     entries: Vec<TagNode>,
 }

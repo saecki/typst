@@ -395,18 +395,20 @@ impl Tags {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TableId(u32);
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct LinkId(u32);
 
+#[derive(Debug)]
 pub(crate) struct StackEntry {
     pub(crate) loc: Location,
     pub(crate) kind: StackEntryKind,
     pub(crate) nodes: Vec<TagNode>,
 }
 
+#[derive(Debug)]
 pub(crate) enum StackEntryKind {
     Standard(Tag),
     Outline(OutlineCtx),

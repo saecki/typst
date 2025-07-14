@@ -2,11 +2,13 @@ use krilla::tagging::{ListNumbering, TagKind};
 
 use crate::tags::TagNode;
 
+#[derive(Debug)]
 pub(crate) struct ListCtx {
     numbering: ListNumbering,
     items: Vec<ListItem>,
 }
 
+#[derive(Debug)]
 struct ListItem {
     label: Vec<TagNode>,
     body: Option<Vec<TagNode>>,
