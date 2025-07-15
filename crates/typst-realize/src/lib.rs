@@ -658,6 +658,7 @@ fn visit_grouping_rules<'a>(
     while let Some(active) = s.groupings.last() {
         // Start a nested group if a rule with higher priority matches.
         if matching.is_some_and(|rule| rule.priority > active.rule.priority) {
+            eprintln!("nest grouping");
             break;
         }
 
@@ -665,10 +666,12 @@ fn visit_grouping_rules<'a>(
         if !active.interrupted
             && ((active.rule.trigger)(content, s) || (active.rule.inner)(content))
         {
+            eprintln!("continued grouping");
             s.sink.push((content, styles));
             return Ok(true);
         }
 
+        eprintln!("    due to lower priority rule");
         finish_innermost_grouping(s)?;
         i += 1;
         if i > 512 {
@@ -684,9 +687,11 @@ fn visit_grouping_rules<'a>(
 
     // Start a new grouping.
     if let Some(rule) = matching {
+        eprintln!("new groouping, priority: {}", rule.priority);
         let start = s.sink.len();
         s.groupings.push(Grouping { start, rule, interrupted: false });
         s.sink.push((content, styles));
+        eprintln!("(depth = {})", s.groupings.len());
         return Ok(true);
     }
 
@@ -731,12 +736,18 @@ fn visit_filter_rules<'a>(
 
 /// Finishes all grouping.
 fn finish(s: &mut State) -> SourceResult<()> {
+    eprintln!("at end");
     finish_grouping_while(s, |s| {
         // If this is a fragment realization and all we've got is inline
         // content, don't turn it into a paragraph.
         if is_fully_inline(s) {
             *s.kind.as_fragment_mut().unwrap() = FragmentKind::Inline;
-            s.groupings.pop();
+            let g = s.groupings.pop();
+            eprintln!(
+                "    close grouping (inline), priority: {}",
+                g.unwrap().rule.priority
+            );
+            eprintln!("(depth = {})", s.groupings.len());
             collapse_spaces(&mut s.sink, 0);
             false
         } else {
@@ -759,6 +770,7 @@ fn finish_interrupted(s: &mut State, local: &Styles) -> SourceResult<()> {
         if last == Some(elem) {
             continue;
         }
+        eprintln!("    interrupted");
         finish_grouping_while(s, |s| {
             s.groupings.iter().any(|grouping| (grouping.rule.interrupt)(elem))
                 && if is_fully_inline(s) {
@@ -783,6 +795,7 @@ where
     // loop, we keep track of the iteration count.
     let mut i = 0;
     while f(s) {
+        eprintln!("    reasons");
         finish_innermost_grouping(s)?;
         i += 1;
         if i > 512 {
@@ -796,6 +809,8 @@ where
 fn finish_innermost_grouping(s: &mut State) -> SourceResult<()> {
     // The grouping we are interrupting.
     let Grouping { start, rule, .. } = s.groupings.pop().unwrap();
+    eprintln!("    close grouping, priority: {}", rule.priority);
+    eprintln!("(depth = {})", s.groupings.len());
 
     // Trim trailing non-trigger elements.
     let trimmed = s.sink[start..].trim_end_matches(|(c, _)| !(rule.trigger)(c, s));
@@ -811,7 +826,6 @@ fn finish_innermost_grouping(s: &mut State) -> SourceResult<()> {
         }
     }
     if tag_balance != 0 {
-        dbg!(s.sink[end..].len());
         for (i, (c, _)) in s.sink[end..].iter().enumerate() {
             if let Some(tag) = c.to_packed::<TagElem>() {
                 match tag.tag {
@@ -988,6 +1002,7 @@ fn finish_textual(Grouped { s, mut start }: Grouped) -> SourceResult<()> {
     if in_non_par_grouping(s) {
         let elems = s.store_slice(&s.sink[start..]);
         s.sink.truncate(start);
+        eprintln!("    non-par-grouping");
         finish_grouping_while(s, in_non_par_grouping)?;
         start = s.sink.len();
         s.sink.extend(elems);
@@ -998,7 +1013,9 @@ fn finish_textual(Grouped { s, mut start }: Grouped) -> SourceResult<()> {
     //    transparently become part of it.
     // 2. There is no group at all. In this case, we create one.
     if s.groupings.is_empty() && s.rules.iter().any(|&rule| std::ptr::eq(rule, &PAR)) {
+        eprintln!("new groouping (par), priority: {}", PAR.priority);
         s.groupings.push(Grouping { start, rule: &PAR, interrupted: false });
+        eprintln!("(depth = {})", s.groupings.len());
     }
 
     Ok(())
@@ -1032,7 +1049,7 @@ fn finish_par(mut grouped: Grouped) -> SourceResult<()> {
     collapse_spaces(sink, start);
 
     // Collect the children.
-    let elems = grouped.get();
+    let elems = dbg!(grouped.get());
     let span = select_span(elems);
     let (body, trunk) = repack(elems);
 
