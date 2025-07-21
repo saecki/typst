@@ -2,6 +2,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use bytemuck::TransparentWrapper;
+use krilla::configure::Validator;
 use krilla::surface::{Location, Surface};
 use krilla::tagging::SpanTag;
 use krilla::text::GlyphId;
@@ -23,6 +24,12 @@ pub(crate) fn handle_text(
     gc: &mut GlobalContext,
 ) -> SourceResult<()> {
     *gc.languages.entry(t.lang).or_insert(0) += t.glyphs.len();
+
+    if gc.options.standards.config.validator() == Validator::UA1
+        && let Some(bbox) = gc.tags.stack.find_parent_bbox()
+    {
+        bbox.expand_frame(fc, t.bbox());
+    }
 
     let mut handle = tags::start_span(gc, surface, SpanTag::empty());
     let surface = handle.surface();

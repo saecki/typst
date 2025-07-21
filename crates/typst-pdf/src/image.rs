@@ -2,6 +2,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
 
 use image::{DynamicImage, EncodableLayout, GenericImageView, Rgba};
+use krilla::configure::Validator;
 use krilla::image::{BitsPerComponent, CustomImage, ImageColorspace};
 use krilla::pdf::PdfDocument;
 use krilla::surface::Surface;
@@ -9,7 +10,7 @@ use krilla::tagging::SpanTag;
 use krilla_svg::{SurfaceExt, SvgSettings};
 use typst_library::diag::{SourceResult, bail};
 use typst_library::foundations::Smart;
-use typst_library::layout::{Abs, Angle, Ratio, Size, Transform};
+use typst_library::layout::{Abs, Angle, Point, Ratio, Rect, Size, Transform};
 use typst_library::visualize::{
     ExchangeFormat, Image, ImageKind, ImageScaling, PdfImage, RasterFormat, RasterImage,
 };
@@ -34,6 +35,13 @@ pub(crate) fn handle_image(
     let interpolate = image.scaling() == Smart::Custom(ImageScaling::Smooth);
 
     gc.image_spans.insert(span);
+
+    if gc.options.standards.config.validator() == Validator::UA1
+        && let Some(bbox) = gc.tags.stack.find_parent_bbox()
+    {
+        let rect = Rect::from_pos_size(Point::zero(), size);
+        bbox.expand_frame(fc, rect);
+    }
 
     let mut handle =
         tags::start_span(gc, surface, SpanTag::empty().with_alt_text(image.alt()));

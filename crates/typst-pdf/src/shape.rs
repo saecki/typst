@@ -1,3 +1,4 @@
+use krilla::configure::Validator;
 use krilla::geom::{Path, PathBuilder, Rect};
 use krilla::surface::Surface;
 use typst_library::diag::SourceResult;
@@ -17,6 +18,12 @@ pub(crate) fn handle_shape(
     gc: &mut GlobalContext,
     span: Span,
 ) -> SourceResult<()> {
+    if gc.options.standards.config.validator() == Validator::UA1
+        && let Some(bbox) = gc.tags.stack.find_parent_bbox()
+    {
+        bbox.expand_frame(fc, shape.geometry.bbox());
+    }
+
     let mut handle = tags::start_artifact(gc, surface, ArtifactKind::Other);
     let surface = handle.surface();
 
