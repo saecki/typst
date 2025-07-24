@@ -122,6 +122,46 @@ fn convert_pages(gc: &mut GlobalContext, document: &mut Document) -> SourceResul
 
             tags::page_end(gc, &mut surface);
 
+            fn draw_bboxes(
+                surface: &mut Surface,
+                page_idx: usize,
+                node: &tags::TagNode,
+            ) {
+                if let tags::TagNode::Group(tag, nodes) = node {
+                    if let Some(bbox) = tag.bbox()
+                        && bbox.page_idx == page_idx
+                    {
+                        let x1 = bbox.rect.left();
+                        let y1 = bbox.rect.top();
+                        let x2 = bbox.rect.right();
+                        let y2 = bbox.rect.bottom();
+                        let mut path = krilla::geom::PathBuilder::new();
+                        path.move_to(x1, y1);
+                        path.line_to(x2, y1);
+                        path.line_to(x2, y2);
+                        path.line_to(x1, y2);
+                        path.close();
+                        let mut stroke = krilla::paint::Stroke::default();
+                        stroke.paint = krilla::color::Color::Rgb(
+                            krilla::color::rgb::Color::new(255, 0, 0),
+                        )
+                        .into();
+                        surface.set_stroke(Some(stroke));
+                        surface.set_fill(None);
+                        surface.draw_path(&path.finish().unwrap());
+                    }
+
+                    for node in nodes.iter() {
+                        draw_bboxes(surface, page_idx, node);
+                    }
+                }
+            }
+            if let Some(page_idx) = page_idx {
+                for node in gc.tags.tree.iter() {
+                    draw_bboxes(&mut surface, page_idx, node);
+                }
+            }
+
             surface.finish();
 
             tags::add_annotations(gc, &mut page, fc.link_annotations);
