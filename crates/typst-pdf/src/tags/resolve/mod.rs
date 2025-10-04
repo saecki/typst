@@ -54,6 +54,15 @@ impl Resolver<'_> {
 }
 
 pub fn resolve(gc: &mut GlobalContext) -> SourceResult<(Option<Locale>, TagTree)> {
+    // ensure the last printed line isn't overwritten.
+    struct A;
+    impl std::ops::Drop for A {
+        fn drop(&mut self) {
+            eprintln!("---\n");
+        }
+    }
+    let _a = A;
+
     gc.tags.tree.assert_finished_traversal().at(Span::detached())?;
 
     if !disabled(gc) {
@@ -78,6 +87,26 @@ pub fn resolve(gc: &mut GlobalContext) -> SourceResult<(Option<Locale>, TagTree)
         errors: std::mem::take(&mut gc.tags.tree.errors),
     };
 
+    let mut present = typst_utils::BitSet::new();
+    eprintln!("=== tree ===");
+    print_node(&resolver, &mut present, &TagNode::Group(GroupId::ROOT), 0);
+
+    eprintln!("=== groups ===");
+    for (id, group) in resolver.groups.ids().zip(resolver.groups.iter()) {
+        eprint!("{id:?} {:?} parent={:?}", group.kind, group.parent);
+        if group.weak {
+            eprint!(" weak")
+        }
+        if !present.contains(id.idx()) {
+            if group.weak {
+                eprint!(" \x1b[33mmissing\x1b[0m")
+            } else {
+                eprint!(" \x1b[31mmissing\x1b[0m")
+            }
+        }
+        eprintln!();
+    }
+
     let mut accum = Accumulator::root();
     accum.reserve(root.nodes().len());
 
@@ -92,6 +121,35 @@ pub fn resolve(gc: &mut GlobalContext) -> SourceResult<(Option<Locale>, TagTree)
     let children = accum.finish();
 
     Ok((doc_lang, TagTree::from(children)))
+}
+
+fn print_node(
+    rs: &Resolver,
+    present: &mut typst_utils::BitSet,
+    node: &TagNode,
+    indent: u8,
+) {
+    for _ in 0..indent {
+        eprint!("  ");
+    }
+    match node {
+        TagNode::Group(id) => {
+            present.insert(id.idx());
+
+            let group = rs.groups.get(*id);
+            eprint!("group {:?} {:?}", group.kind, id);
+            if group.weak {
+                eprint!(" (weak)");
+            }
+            eprintln!();
+            for child in group.nodes() {
+                print_node(rs, present, child, indent + 1);
+            }
+        }
+        TagNode::Leaf(_) => eprintln!("leaf"),
+        TagNode::Annotation(_) => eprintln!("annotation"),
+        TagNode::Text(_, identifiers) => eprintln!("text x{}", identifiers.len()),
+    }
 }
 
 /// Resolves nodes into an accumulator.

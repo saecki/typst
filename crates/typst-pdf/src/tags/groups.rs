@@ -223,6 +223,9 @@ impl Groups {
             | GroupKind::CodeBlockLine(..)
             | GroupKind::Transparent => unreachable!(),
         };
+
+        eprintln!("          broken {id:?} -> {:?}", self.list.next_id());
+
         self.list.push(Group::weak(new_parent, span, new_kind))
     }
 }

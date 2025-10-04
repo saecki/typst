@@ -33,6 +33,7 @@ pub(crate) fn handle_link(
     dest: &Destination,
     size: Size,
 ) -> SourceResult<()> {
+    eprintln!("link");
     let target = match dest {
         Destination::Url(u) => {
             Target::Action(Action::Link(LinkAction::new(u.to_string())))

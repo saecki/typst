@@ -17,7 +17,7 @@ use crate::tags::tree::Tree;
 
 pub use crate::tags::context::{AnnotationId, Tags};
 pub use crate::tags::groups::GroupId;
-pub use crate::tags::resolve::resolve;
+pub use crate::tags::resolve::{resolve, TagNode};
 
 mod context;
 mod groups;

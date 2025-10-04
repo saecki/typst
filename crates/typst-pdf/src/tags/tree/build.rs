@@ -73,6 +73,9 @@ pub struct TreeBuilder<'a> {
     /// regions, and thus can have opening/closing introspection tags that are
     /// in completely different frames, due to the logical parenting mechanism.
     unfinished_stacks: FxHashMap<Location, Vec<StackEntry>>,
+
+    tag_map: FxHashMap<Location, (u32, usize, &'static str)>,
+    tag_indent: u32,
 }
 
 impl<'a> TreeBuilder<'a> {
@@ -96,10 +99,19 @@ impl<'a> TreeBuilder<'a> {
 
             stack: TagStack::new(),
             unfinished_stacks: FxHashMap::default(),
+
+            tag_map: FxHashMap::default(),
+            tag_indent: 0,
         }
     }
 
     pub fn finish(self) -> Tree {
+        dbg!(&self.progressions);
+        dbg!(&self.breaks);
+        for (id, group) in self.groups.list.ids().zip(self.groups.list.iter()) {
+            eprintln!("{id:?} {group:?}");
+        }
+
         Tree {
             prog_cursor: 0,
             progressions: self.progressions,
@@ -131,6 +143,53 @@ impl<'a> TreeBuilder<'a> {
 
     pub fn parent_kind(&self) -> &GroupKind {
         &self.groups.get(self.parent()).kind
+    }
+
+    pub fn print(&self, inside: Option<GroupId>) {
+        let mut children = FxHashMap::<GroupId, Vec<GroupId>>::default();
+
+        for (id, group) in self.groups.list.ids().zip(self.groups.list.iter()) {
+            children.entry(group.parent).or_default().push(id);
+        }
+
+        self.print_group(&children, GroupId::ROOT, 0, inside);
+    }
+
+    fn print_group(
+        &self,
+        children: &FxHashMap<GroupId, Vec<GroupId>>,
+        id: GroupId,
+        indent: u8,
+        inside: Option<GroupId>,
+    ) {
+        for _ in 0..indent {
+            eprint!("  ");
+        }
+        let group = self.groups.get(id);
+        if inside == Some(id) {
+            eprint!("\x1b[36m");
+        }
+        eprint!("group {:?} {:?}", group.kind, id);
+        if group.weak {
+            eprint!(" (weak)");
+        }
+        if inside == Some(id) {
+            eprint!(" *\x1b[0m");
+        }
+        eprintln!();
+
+        if let Some(c) = children.get(&id) {
+            for child in c.iter() {
+                self.print_group(children, *child, indent + 1, inside);
+            }
+        }
+    }
+
+    pub fn print_stack(&self) {
+        for e in self.stack.iter() {
+            eprint!(" > {:?}", self.groups.get(e.id).kind);
+        }
+        eprintln!();
     }
 }
 
@@ -178,8 +237,18 @@ struct StackEntry {
 }
 
 pub fn build(document: &PagedDocument, options: &PdfOptions) -> SourceResult<Tree> {
+    // ensure the last printed line isn't overwritten.
+    struct A;
+    impl std::ops::Drop for A {
+        fn drop(&mut self) {
+            eprintln!("---\n");
+        }
+    }
+    let _a = A;
+
     let mut tree = TreeBuilder::new(document, options);
     for page in document.pages() {
+        dbg!(&page.frame);
         visit_frame(&mut tree, &page.frame)?;
     }
 
@@ -241,21 +310,27 @@ pub fn build(document: &PagedDocument, options: &PdfOptions) -> SourceResult<Tre
 fn visit_frame(tree: &mut TreeBuilder, frame: &Frame) -> SourceResult<()> {
     for (_, item) in frame.items() {
         match item {
-            FrameItem::Group(group) => visit_group_frame(tree, group)?,
+            FrameItem::Group(group) => {
+                eprintln!("> group");
+                visit_group_frame(tree, group)?;
+                eprintln!("< group");
+            }
             FrameItem::Tag(typst_library::introspection::Tag::Start(elem, flags)) => {
                 if flags.tagged {
                     visit_start_tag(tree, elem);
+                    tree.print(Some(tree.current()));
                 }
             }
             FrameItem::Tag(typst_library::introspection::Tag::End(loc, _, flags)) => {
                 if flags.tagged {
                     visit_end_tag(tree, *loc)?;
+                    tree.print(Some(tree.current()));
                 }
             }
-            FrameItem::Text(_) => (),
-            FrameItem::Shape(..) => (),
-            FrameItem::Image(..) => (),
-            FrameItem::Link(..) => (),
+            FrameItem::Text(t) => eprintln!("text {:?}", t.text),
+            FrameItem::Shape(..) => eprintln!("shape"),
+            FrameItem::Image(..) => eprintln!("image"),
+            FrameItem::Link(..) => eprintln!("link"),
         }
     }
     Ok(())
@@ -293,6 +368,7 @@ fn visit_group_frame(tree: &mut TreeBuilder, group: &GroupItem) -> SourceResult<
 }
 
 fn push_logical_child(tree: &mut TreeBuilder, parent: FrameParent) -> GroupId {
+    eprintln!(">>> logical child");
     let id = tree.groups.new_virtual(
         match parent.inherit {
             Inherit::Yes => GroupId::INVALID,
@@ -313,6 +389,7 @@ fn push_logical_child(tree: &mut TreeBuilder, parent: FrameParent) -> GroupId {
 }
 
 fn pop_logical_child(tree: &mut TreeBuilder, parent: FrameParent, stack_idx: usize) {
+    eprintln!("<<< logical child");
     if let Some(stack) = tree.stack.take_unfinished_stack(stack_idx) {
         tree.unfinished_stacks.insert(parent.location, stack);
         tree.unfinished.push(Unfinished {
@@ -324,11 +401,45 @@ fn pop_logical_child(tree: &mut TreeBuilder, parent: FrameParent, stack_idx: usi
 }
 
 fn visit_start_tag(tree: &mut TreeBuilder, elem: &Content) {
+    {
+        let loc = elem.location().expect("elem to be locatable");
+        let elem_id = tree.tag_map.len();
+        let name = elem.elem().name();
+        for _ in 0..tree.tag_indent {
+            eprint!("  ");
+        }
+        eprint!("\x1b[33mSTART\x1b[0m {elem_id} {name}");
+        if let Some(marker_tag) = elem.to_packed::<PdfMarkerTag>() {
+            eprint!(" {:?}", marker_tag.kind);
+        }
+        eprintln!();
+        let indent = tree.tag_indent;
+        tree.tag_indent += 1;
+        tree.tag_map.insert(loc, (indent, elem_id, name));
+    }
+
     let group_id = progress_tree_start(tree, elem);
     tree.progressions.push(group_id);
 }
 
 fn visit_end_tag(tree: &mut TreeBuilder, loc: Location) -> SourceResult<()> {
+    {
+        if let Some((indent, elem_id, name)) = tree.tag_map.get(&loc) {
+            tree.tag_indent -= 1;
+            for _ in 0..tree.tag_indent {
+                eprint!("  ");
+            }
+            if *indent == tree.tag_indent {
+                eprintln!("\x1b[32mEND\x1b[0m   {elem_id} {name}");
+            } else {
+                tree.tag_indent += 1;
+                eprintln!("\x1b[31mMISMATCHED\x1b[0m {elem_id} {name}");
+            }
+        } else {
+            eprintln!("\x1b[31mUNMATCHED\x1b[0m");
+        };
+    }
+
     let group = progress_tree_end(tree, loc)?;
     tree.progressions.push(group);
     Ok(())
@@ -632,7 +743,10 @@ fn progress_tree_end(tree: &mut TreeBuilder, loc: Location) -> SourceResult<Grou
     let outer_break_opportunity = tree.groups.breakable(&outer.kind);
     let outer_break_priority = outer_break_opportunity.get(is_pdf_ua);
 
-    match (outer_break_priority, inner_break_priority) {
+    tree.print_stack();
+
+    eprint!("{:?} ", entry.id);
+    let res = match (outer_break_priority, inner_break_priority) {
         (Some(outer_priority), Some(inner_priority)) => {
             // Prefer splitting up the inner groups.
             if inner_priority >= outer_priority {
@@ -655,7 +769,7 @@ fn progress_tree_end(tree: &mut TreeBuilder, loc: Location) -> SourceResult<Grou
                 bail!(
                     non_breakable_span,
                     "{validator} error: invalid document structure, \
-                     this element's PDF tag would be split up";
+                     this element's PDF tag would be split up {:?}", outer.kind;
                     hint: "this is probably caused by paragraph grouping";
                     hint: "maybe you've used a `parbreak`, `colbreak`, or `pagebreak`";
                 );
@@ -663,12 +777,14 @@ fn progress_tree_end(tree: &mut TreeBuilder, loc: Location) -> SourceResult<Grou
                 bail!(
                     non_breakable_span,
                     "invalid document structure, \
-                     this element's PDF tag would be split up";
+                     this element's PDF tag would be split up {:?}", outer.kind;
                     hint: "please report this as a bug";
                 );
             }
         }
-    }
+    };
+    tree.print_stack();
+    res
 }
 
 /// Consider the following introspection tags:
@@ -693,6 +809,8 @@ fn split_inner_groups(
     mut parent: GroupId,
     stack_idx: usize,
 ) -> GroupId {
+    eprintln!("\x1b[35msplit inner\x1b[0m");
+
     // Since the broken groups won't be visited again in any future progression,
     // they'll need to be closed when this progression is visited.
     let num_closed = (tree.stack.len() - stack_idx) as u16;
@@ -742,6 +860,8 @@ fn split_outer_group(
     parent: GroupId,
     stack_idx: usize,
 ) -> GroupId {
+    eprintln!("\x1b[35msplit outer\x1b[0m");
+
     let prev = tree.current();
 
     // Remove the closed entry;
@@ -775,6 +895,7 @@ fn split_outer_group(
         let prev = tree.progressions[entry.prog_idx as usize];
         for prog in &mut tree.progressions[entry.prog_idx as usize..] {
             if *prog == prev {
+                dbg!(*prog, nested);
                 *prog = nested;
             }
         }
@@ -783,11 +904,13 @@ fn split_outer_group(
         let mut break_idx = Some(tree.breaks.len());
         for (i, brk) in tree.breaks.iter_mut().enumerate().rev() {
             if brk.prog_idx == entry.prog_idx {
+                eprintln!("          existing break");
                 brk.num_closed += 1;
                 brk.num_opened += 1;
                 break_idx = None;
                 break;
             } else if brk.prog_idx < entry.prog_idx {
+                eprintln!("          new break");
                 break_idx = Some(i + 1);
                 break;
             }

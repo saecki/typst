@@ -1,10 +1,10 @@
 use crate::PdfOptions;
 use crate::convert::{FrameContext, GlobalContext};
-use crate::tags::GroupId;
 use crate::tags::context::{BBoxCtx, BBoxId, Ctx};
 use crate::tags::groups::{Group, GroupKind, Groups};
 use crate::tags::tree::build::TreeBuilder;
 use crate::tags::tree::text::TextAttrs;
+use crate::tags::{GroupId, TagNode};
 use ecow::EcoVec;
 use krilla::surface::Surface;
 use krilla::tagging::{Artifact, ContentTag, Tag};
@@ -90,6 +90,33 @@ impl Tree {
             "tree traversal didn't complete properly",
         )?;
         Ok(())
+    }
+
+    pub fn print(&self) {
+        eprintln!("--- {:?} ---", self.current());
+        self.print_node(&TagNode::Group(GroupId::ROOT), 0);
+    }
+
+    pub fn print_node(&self, node: &TagNode, indent: u8) {
+        for _ in 0..indent {
+            eprint!("  ");
+        }
+        match node {
+            TagNode::Group(id) => {
+                let group = self.groups.get(*id);
+                eprint!("group {:?} {:?}", group.kind, id);
+                if group.weak {
+                    eprint!(" (weak)");
+                }
+                eprintln!();
+                for child in group.nodes() {
+                    self.print_node(child, indent + 1);
+                }
+            }
+            TagNode::Leaf(_) => eprintln!("leaf"),
+            TagNode::Annotation(_) => eprintln!("annotation"),
+            TagNode::Text(_, identifiers) => eprintln!("text x{}", identifiers.len()),
+        }
     }
 }
 
