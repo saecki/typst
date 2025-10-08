@@ -14,11 +14,12 @@ use typst::foundations::{
     Array, Bytes, Context, Datetime, IntoValue, NoneValue, Repr, Smart, Value, func,
 };
 use typst::layout::{Abs, Margin, PageElem};
+use typst::math::EquationElem;
 use typst::model::{Numbering, NumberingPattern};
 use typst::syntax::{FileId, Source, Span};
 use typst::text::{Font, FontBook, TextElem, TextSize};
 use typst::utils::{LazyHash, singleton};
-use typst::visualize::Color;
+use typst::visualize::{Color, ImageElem};
 use typst::{Feature, Library, LibraryExt, World};
 use typst_syntax::Lines;
 
@@ -219,6 +220,9 @@ fn library() -> Library {
     lib.styles
         .set(PageElem::margin, Margin::splat(Some(Smart::Custom(Abs::pt(10.0).into()))));
     lib.styles.set(TextElem::size, TextSize(Abs::pt(10.0).into()));
+
+    lib.styles.set(ImageElem::alt, Some("hi".into()));
+    lib.styles.set(EquationElem::alt, Some("hi".into()));
 
     lib
 }

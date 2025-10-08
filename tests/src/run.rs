@@ -457,7 +457,25 @@ impl OutputType for PagedDocument {
         // Write PDF if requested.
         if crate::ARGS.pdf() {
             let pdf_path = format!("{}/pdf/{}.pdf", crate::STORE_PATH, name);
-            let pdf = typst_pdf::pdf(self, &PdfOptions::default())?;
+
+            let standards = PdfStandards::new(&[PdfStandard::Ua_1]).unwrap();
+            use typst::foundations::Datetime;
+            use typst_pdf::Timestamp;
+            let timestamp = Timestamp::new_utc(Datetime::from_ymd(1970, 1, 1).unwrap());
+            let options = PdfOptions {
+                standards,
+                timestamp: Some(timestamp),
+                ..Default::default()
+            };
+
+            // Add default title if missing (required for some standards)
+            let mut doc = self.clone();
+            if doc.info.title.is_none() {
+                doc.info.title = Some("<test>".into());
+            }
+
+            let pdf = typst_pdf::pdf(&doc, &options)?;
+
             std::fs::write(pdf_path, pdf).unwrap();
         }
 
