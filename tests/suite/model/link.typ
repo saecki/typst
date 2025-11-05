@@ -1,6 +1,6 @@
 // Test hyperlinking.
 
---- link-basic paged html pdftags ---
+--- link-basic paged html pdftags(ua-1) ---
 // Link syntax.
 https://example.com/
 

@@ -1,4 +1,4 @@
---- grid-headers paged pdftags ---
+--- grid-headers paged pdftags(ua-1) ---
 #set page(width: auto, height: 12em)
 #table(
   columns: 5,

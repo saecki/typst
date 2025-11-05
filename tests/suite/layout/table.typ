@@ -1,6 +1,6 @@
 // Test tables.
 
---- table-empty paged pdftags ---
+--- table-empty paged pdftags(ua-1) ---
 #table()
 
 --- table-newlines paged ---
