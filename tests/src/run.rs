@@ -15,7 +15,7 @@ use crate::collect::{FileSize, NoteKind, Test, TestStage, TestStages, TestTarget
 use crate::logger::TestResult;
 use crate::output::{FileOutputType, HashOutputType, HashedRefs, OutputType};
 use crate::world::{TestWorld, system_path};
-use crate::{ARGS, custom, output};
+use crate::{custom, output};
 
 type OutputHashes = FxHashMap<&'static VirtualPath, HashedRefs>;
 
@@ -100,14 +100,14 @@ impl<'a> Runner<'a> {
                 }
             }
 
-            self.run_file_test::<output::Render>(&doc, ARGS.render());
-            self.run_hash_test::<output::Pdf>(&doc, ARGS.pdf());
-            self.run_file_test::<output::Pdftags>(&doc, false);
-            self.run_hash_test::<output::Svg>(&doc, ARGS.svg());
+            self.run_file_test::<output::Render>(&doc);
+            let pdf = self.run_hash_test::<output::Pdf>(&doc);
+            self.run_file_test::<output::Pdftags>(&pdf);
+            self.run_hash_test::<output::Svg>(&doc);
         }
         if self.test.attrs.stages.has_html_target() {
             let doc = self.compile::<HtmlDocument>(TestTarget::Html);
-            self.run_file_test::<output::Html>(&doc, false);
+            self.run_file_test::<output::Html>(&doc);
         }
 
         self.handle_not_emitted();
@@ -158,33 +158,23 @@ impl<'a> Runner<'a> {
     fn run_file_test<T: FileOutputType>(
         &mut self,
         doc: &Option<T::Doc>,
-        save_live: bool,
-    ) {
-        let save_ref = self.test.attrs.stages.contains(T::OUTPUT.into());
-        if !(save_ref || save_live) {
-            return;
-        }
-
+    ) -> Option<T::Live> {
         let output = self.run_test::<T>(doc);
-        if save_ref {
-            self.check_file_ref::<T>(output)
+        if self.test.attrs.save_ref(T::OUTPUT) {
+            self.check_file_ref::<T>(&output)
         }
+        output.map(|(_, live)| live)
     }
 
     fn run_hash_test<T: HashOutputType>(
         &mut self,
         doc: &Option<T::Doc>,
-        save_live: bool,
-    ) {
-        let save_ref = self.test.attrs.stages.contains(T::OUTPUT.into());
-        if !(save_ref || save_live) {
-            return;
-        }
-
+    ) -> Option<T::Live> {
         let output = self.run_test::<T>(doc);
-        if save_ref {
-            self.check_hash_ref::<T>(output)
+        if self.test.attrs.save_ref(T::OUTPUT) {
+            self.check_hash_ref::<T>(&output)
         }
+        output.map(|(_, live)| live)
     }
 
     /// Run test specific to document format.
@@ -226,7 +216,7 @@ impl<'a> Runner<'a> {
     }
 
     /// Check that the document output is correct.
-    fn check_file_ref<T: FileOutputType>(&mut self, output: Option<(T::Doc, T::Live)>) {
+    fn check_file_ref<T: FileOutputType>(&mut self, output: &Option<(T::Doc, T::Live)>) {
         let live_path = T::OUTPUT.live_path(&self.test.name);
         let ref_path = T::OUTPUT.file_ref_path(&self.test.name);
 
@@ -239,7 +229,7 @@ impl<'a> Runner<'a> {
             return;
         };
 
-        let skippable = match T::is_skippable(&doc, &live) {
+        let skippable = match T::is_skippable(doc, live) {
             Ok(skippable) => skippable,
             Err(()) => {
                 log!(self, "document has zero pages");
@@ -255,7 +245,7 @@ impl<'a> Runner<'a> {
 
         // Compare against reference output if available.
         // Test that is ok doesn't need to be updated.
-        if old_ref_data.as_ref().is_ok_and(|r| T::matches(r, &live)) {
+        if old_ref_data.as_ref().is_ok_and(|r| T::matches(r, live)) {
             return;
         }
 
@@ -267,7 +257,7 @@ impl<'a> Runner<'a> {
                     "removed reference output ({})", ref_path.display()
                 );
             } else {
-                let new_ref_data = T::make_ref(&live);
+                let new_ref_data = T::make_ref(live);
                 let new_ref_data = new_ref_data.as_ref();
                 if !self.test.attrs.large && new_ref_data.len() > crate::REF_LIMIT {
                     log!(self, "reference output would exceed maximum size");
@@ -305,7 +295,7 @@ impl<'a> Runner<'a> {
     }
 
     /// Check that the document output is correct.
-    fn check_hash_ref<T: HashOutputType>(&mut self, output: Option<(T::Doc, T::Live)>) {
+    fn check_hash_ref<T: HashOutputType>(&mut self, output: &Option<(T::Doc, T::Live)>) {
         let live_path = T::OUTPUT.live_path(&self.test.name);
 
         let source_path = self.test.source.id().vpath();
@@ -334,7 +324,7 @@ impl<'a> Runner<'a> {
             return;
         };
 
-        let skippable = match T::is_skippable(&doc, &live) {
+        let skippable = match T::is_skippable(doc, live) {
             Ok(skippable) => skippable,
             Err(()) => {
                 log!(self, "document has zero pages");
@@ -350,7 +340,7 @@ impl<'a> Runner<'a> {
 
         // Compare against reference output if available.
         // Test that is ok doesn't need to be updated.
-        let new_ref_hash = T::make_hash(&live);
+        let new_ref_hash = T::make_hash(live);
         if old_ref_hash.as_ref().is_some_and(|h| *h == new_ref_hash) {
             return;
         }

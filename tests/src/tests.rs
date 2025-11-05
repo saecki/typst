@@ -10,6 +10,7 @@ mod logger;
 mod custom;
 #[cfg(feature = "default")]
 mod output;
+mod pdftags;
 #[cfg(feature = "default")]
 mod run;
 #[cfg(feature = "default")]

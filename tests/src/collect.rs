@@ -7,6 +7,7 @@ use std::sync::LazyLock;
 use bitflags::{Flags, bitflags};
 use ecow::{EcoString, eco_format};
 use rustc_hash::{FxHashMap, FxHashSet};
+use typst_pdf::PdfStandard;
 use typst_syntax::package::PackageVersion;
 use typst_syntax::{
     FileId, Lines, Source, VirtualPath, is_id_continue, is_ident, is_newline,
@@ -67,15 +68,20 @@ bitflags! {
     #[derive(Copy, Clone)]
     struct AttrFlags: u16 {
         const LARGE = 1 << 0;
-        const NOPDFUA = 1 << 1;
     }
 }
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
 pub struct Attrs {
     pub large: bool,
-    pub pdf_ua: bool,
+    pub pdf_standard: Option<PdfStandard>,
     pub stages: TestStages,
+}
+
+impl Attrs {
+    pub fn save_ref(&self, output: TestOutput) -> bool {
+        self.stages.contains(output.into())
+    }
 }
 
 pub trait TestStage: Into<TestStages> + Display + Copy {}
@@ -94,7 +100,7 @@ bitflags! {
 
 impl TestStages {
     pub fn has_paged_target(&self) -> bool {
-        self.intersects(Self::PAGED | Self::PDFTAGS)
+        self.intersects(Self::PAGED)
     }
 
     pub fn has_html_target(&self) -> bool {
@@ -523,22 +529,49 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_attrs(&mut self) -> Attrs {
-        let mut flags = AttrFlags::empty();
         let mut stages = TestStages::empty();
+        let mut flags = AttrFlags::empty();
+        let mut pdf_standard = None;
         while !self.s.eat_if("---") {
-            let attr = self.s.eat_until(char::is_whitespace);
-            match attr {
+            let attr_name = self.s.eat_while(is_id_continue);
+            let mut attr_params = None;
+            if self.s.eat_if('(') {
+                attr_params = Some(self.s.eat_until(')'));
+                if !self.s.eat_if(')') {
+                    self.error("expected closing parenthesis");
+                }
+            }
+            if !self.s.at(' ') {
+                self.error("expected a space after an attribute");
+            }
+
+            match attr_name {
                 "paged" => {
                     // The paged target will test render, pdf, and svg by
                     // default.
-                    self.set_attr(attr, &mut stages, TestStages::PAGED);
+                    self.set_attr(attr_name, &mut stages, TestStages::PAGED);
                     stages |= TestStages::RENDER | TestStages::PDF | TestStages::SVG;
                 }
-                "pdftags" => self.set_attr(attr, &mut stages, TestStages::PDFTAGS),
-                "html" => self.set_attr(attr, &mut stages, TestStages::HTML),
+                "pdftags" => {
+                    // pdftags implies the paged target, but won't generate any
+                    // render, pdf, or svg output references, unless paged is
+                    // explicitly specified.
+                    stages |= TestStages::PAGED;
+                    self.set_attr(attr_name, &mut stages, TestStages::PDFTAGS);
+                    if let Some(param) = attr_params.take() {
+                        // TODO: use serde `#[rename = "..."]` attributes
+                        pdf_standard = match param {
+                            "ua-1" => Some(PdfStandard::Ua_1),
+                            _ => {
+                                self.error(format!("unknown pdf-standard `{param}`"));
+                                None
+                            }
+                        }
+                    }
+                }
+                "html" => self.set_attr(attr_name, &mut stages, TestStages::HTML),
 
-                "large" => self.set_attr(attr, &mut flags, AttrFlags::LARGE),
-                "nopdfua" => self.set_attr(attr, &mut flags, AttrFlags::NOPDFUA),
+                "large" => self.set_attr(attr_name, &mut flags, AttrFlags::LARGE),
 
                 found => {
                     self.error(format!(
@@ -547,6 +580,11 @@ impl<'a> Parser<'a> {
                     break;
                 }
             }
+
+            if attr_params.is_some() {
+                self.error("unexpected attribute parameters");
+            }
+
             self.s.eat_while(' ');
         }
 
@@ -556,7 +594,7 @@ impl<'a> Parser<'a> {
 
         Attrs {
             large: flags.contains(AttrFlags::LARGE),
-            pdf_ua: !flags.contains(AttrFlags::NOPDFUA),
+            pdf_standard,
             stages,
         }
     }
