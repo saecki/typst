@@ -14,7 +14,7 @@ use typst_syntax::{
 };
 use unscanny::Scanner;
 
-use crate::{REF_PATH, STORE_PATH, SUITE_PATH};
+use crate::{ARGS, REF_PATH, STORE_PATH, SUITE_PATH};
 
 /// Collects all tests from all files.
 ///
@@ -79,8 +79,8 @@ pub struct Attrs {
 }
 
 impl Attrs {
-    pub fn save_ref(&self, output: TestOutput) -> bool {
-        self.stages.contains(output.into())
+    pub fn should_check_ref(&self, output: TestOutput) -> bool {
+        ARGS.should_run(self.stages & output.into())
     }
 }
 
@@ -99,12 +99,21 @@ bitflags! {
 }
 
 impl TestStages {
-    pub fn has_paged_target(&self) -> bool {
-        self.intersects(Self::PAGED)
+    pub fn paged_stages(&self) -> TestStages {
+        let stages = TestStages::PAGED
+            | TestStages::RENDER
+            | TestStages::PDF
+            | TestStages::PDFTAGS
+            | TestStages::SVG;
+        *self & stages
     }
 
-    pub fn has_html_target(&self) -> bool {
-        self.intersects(Self::HTML)
+    pub fn pdf_stages(&self) -> TestStages {
+        *self & (TestStages::PAGED | TestStages::PDF | TestStages::PDFTAGS)
+    }
+
+    pub fn html_stages(&self) -> TestStages {
+        *self & Self::HTML
     }
 }
 
@@ -501,7 +510,9 @@ impl<'a> Parser<'a> {
 
             let text = self.s.from(start);
 
-            if !selected(&name, self.path.canonicalize().unwrap()) {
+            if !ARGS.should_run(attrs.stages)
+                || !selected(&name, self.path.canonicalize().unwrap())
+            {
                 self.collector.skipped += 1;
                 continue;
             }

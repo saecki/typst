@@ -11,11 +11,13 @@ use typst::{Document, WorldExt};
 use typst_html::HtmlDocument;
 use typst_syntax::{FileId, Lines, VirtualPath};
 
-use crate::collect::{FileSize, NoteKind, Test, TestStage, TestStages, TestTarget};
+use crate::collect::{
+    FileSize, NoteKind, Test, TestOutput, TestStage, TestStages, TestTarget,
+};
 use crate::logger::TestResult;
 use crate::output::{FileOutputType, HashOutputType, HashedRefs, OutputType};
 use crate::world::{TestWorld, system_path};
-use crate::{custom, output};
+use crate::{ARGS, custom, output};
 
 type OutputHashes = FxHashMap<&'static VirtualPath, HashedRefs>;
 
@@ -89,7 +91,7 @@ impl<'a> Runner<'a> {
             log!(into: self.result.infos, "tree: {:#?}", self.test.source.root());
         }
 
-        if self.test.attrs.stages.has_paged_target() {
+        if ARGS.should_run(self.test.attrs.stages.paged_stages()) {
             let doc = self.compile::<PagedDocument>(TestTarget::Paged);
 
             let errors = custom::check(self.test, &self.world, &doc);
@@ -100,12 +102,20 @@ impl<'a> Runner<'a> {
                 }
             }
 
-            self.run_file_test::<output::Render>(&doc);
-            let pdf = self.run_hash_test::<output::Pdf>(&doc);
-            self.run_file_test::<output::Pdftags>(&pdf);
-            self.run_hash_test::<output::Svg>(&doc);
+            if ARGS.should_run(TestOutput::Render) {
+                self.run_file_test::<output::Render>(&doc);
+            }
+            if ARGS.should_run(self.test.attrs.stages.pdf_stages()) {
+                let pdf = self.run_hash_test::<output::Pdf>(&doc);
+                if ARGS.should_run(TestOutput::Pdftags) {
+                    self.run_file_test::<output::Pdftags>(&pdf);
+                }
+            }
+            if ARGS.should_run(TestOutput::Svg) {
+                self.run_hash_test::<output::Svg>(&doc);
+            }
         }
-        if self.test.attrs.stages.has_html_target() {
+        if ARGS.should_run(self.test.attrs.stages.html_stages()) {
             let doc = self.compile::<HtmlDocument>(TestTarget::Html);
             self.run_file_test::<output::Html>(&doc);
         }
@@ -160,7 +170,7 @@ impl<'a> Runner<'a> {
         doc: &Option<T::Doc>,
     ) -> Option<T::Live> {
         let output = self.run_test::<T>(doc);
-        if self.test.attrs.save_ref(T::OUTPUT) {
+        if self.test.attrs.should_check_ref(T::OUTPUT) {
             self.check_file_ref::<T>(&output)
         }
         output.map(|(_, live)| live)
@@ -171,7 +181,7 @@ impl<'a> Runner<'a> {
         doc: &Option<T::Doc>,
     ) -> Option<T::Live> {
         let output = self.run_test::<T>(doc);
-        if self.test.attrs.save_ref(T::OUTPUT) {
+        if self.test.attrs.should_check_ref(T::OUTPUT) {
             self.check_hash_ref::<T>(&output)
         }
         output.map(|(_, live)| live)
