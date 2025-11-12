@@ -831,14 +831,48 @@ fn finish_innermost_grouping(s: &mut State) -> SourceResult<()> {
         // destructed anyways, there isn't really a problem. So we try to
         // anticipate that and destruct it eagerly.
         if std::ptr::eq(rule, &PAR) {
-            for _ in s.sink.extract_if(end.., |(c, _)| c.is::<SpaceElem>()) {}
+            let tail = &s.sink[end..];
+            let n = tail
+                .iter()
+                .position(|(c, _)| {
+                    c.to_packed::<TagElem>()
+                        .is_some_and(|t| matches!(t.tag, Tag::Start(..)))
+                })
+                .unwrap_or(tail.len());
+            eprintln!("extracted:");
+            for s in s.sink.extract_if(end..end + n, |(c, _)| c.is::<SpaceElem>()) {
+                eprintln!("{s:?}");
+            }
         }
 
         // Find tags before, within, and after the grouping range.
         let bump = &s.arenas.bump;
-        let before = tag_set(bump, s.sink[..start].iter().rev().map_while(to_tag));
-        let within = tag_set(bump, s.sink[start..end].iter().filter_map(to_tag));
-        let after = tag_set(bump, s.sink[end..].iter().map_while(to_tag));
+        eprintln!("before:");
+        let before = tag_set(
+            bump,
+            s.sink[..start]
+                .iter()
+                .inspect(|c| eprintln!("  {c:?}"))
+                .rev()
+                .map_while(to_tag),
+        );
+        eprintln!("within:");
+        let within = tag_set(
+            bump,
+            s.sink[start..end]
+                .iter()
+                .inspect(|c| eprintln!("  {c:?}"))
+                .filter_map(to_tag),
+        );
+        eprintln!("after:");
+        let after = tag_set(
+            bump,
+            s.sink[end..]
+                .iter()
+                .inspect(|c| eprintln!("  {c:?}"))
+                .map_while(to_tag),
+        );
+        eprintln!("==============================\n");
 
         // Include all tags at the start that are closed within or after.
         for (k, (c, _)) in s.sink[..start].iter().enumerate().rev() {

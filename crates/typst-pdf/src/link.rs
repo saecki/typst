@@ -84,6 +84,7 @@ pub(crate) fn handle_link(
         return Ok(());
     }
 
+    dbg!(gc.tags.tree.current());
     let (group_id, link) = gc.tags.tree.parent_link().expect("link parent");
     let alt = link.alt.as_ref().map(Into::into);
 

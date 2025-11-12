@@ -103,6 +103,7 @@ impl<'a> TreeBuilder<'a> {
     pub fn finish(self) -> Tree {
         dbg!(&self.progressions);
         dbg!(&self.breaks);
+        dbg!(&self.groups);
 
         Tree {
             prog_cursor: 0,
@@ -194,6 +195,7 @@ pub fn build(document: &PagedDocument, options: &PdfOptions) -> SourceResult<Tre
     let mut tree = TreeBuilder::new(document, options);
     for page in document.pages.iter() {
         visit_frame(&mut tree, &page.frame)?;
+        dbg!(&page.frame);
     }
 
     assert!(tree.stack.is_empty(), "tags weren't properly closed");
@@ -246,7 +248,11 @@ pub fn build(document: &PagedDocument, options: &PdfOptions) -> SourceResult<Tre
 fn visit_frame(tree: &mut TreeBuilder, frame: &Frame) -> SourceResult<()> {
     for (_, item) in frame.items() {
         match item {
-            FrameItem::Group(group) => visit_group_frame(tree, group)?,
+            FrameItem::Group(group) => {
+                eprintln!("> group");
+                visit_group_frame(tree, group)?;
+                eprintln!("< group");
+            }
             FrameItem::Tag(typst_library::introspection::Tag::Start(elem, flags)) => {
                 if flags.tagged {
                     visit_start_tag(tree, elem);
@@ -257,10 +263,10 @@ fn visit_frame(tree: &mut TreeBuilder, frame: &Frame) -> SourceResult<()> {
                     visit_end_tag(tree, *loc)?;
                 }
             }
-            FrameItem::Text(_) => (),
-            FrameItem::Shape(..) => (),
-            FrameItem::Image(..) => (),
-            FrameItem::Link(..) => (),
+            FrameItem::Text(_) => eprintln!("text"),
+            FrameItem::Shape(..) => eprintln!("shape"),
+            FrameItem::Image(..) => eprintln!("image"),
+            FrameItem::Link(..) => eprintln!("link"),
         }
     }
     Ok(())
