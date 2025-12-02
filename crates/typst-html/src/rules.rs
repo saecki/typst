@@ -271,7 +271,7 @@ const HEADING_RULE: ShowFn<HeadingElem> = |elem, engine, styles| {
             .with_attr(attr::aria_level, eco_format!("{}", level + 1))
             .pack()
     } else {
-        let t = [tag::h2, tag::h3, tag::h4, tag::h5, tag::h6][level - 1];
+        let t = [tag::h2, tag::h3, tag::h4, tag::h5, tag::h6][(level - 1) as usize];
         HtmlElem::new(t).with_body(Some(realized)).pack()
     })
 };

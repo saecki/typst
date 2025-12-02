@@ -1,7 +1,8 @@
 use std::fmt::Write;
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::str::FromStr;
 
+use az::SaturatingAs;
 use comemo::{Track, Tracked, TrackedMut};
 use ecow::{EcoString, EcoVec, eco_format, eco_vec};
 use smallvec::{SmallVec, smallvec};
@@ -471,8 +472,8 @@ impl Counter {
         span: Span,
         /// The depth at which to step the counter. Defaults to `{1}`.
         #[named]
-        #[default(NonZeroUsize::ONE)]
-        level: NonZeroUsize,
+        #[default(NonZeroU32::ONE)]
+        level: NonZeroU32,
     ) -> Content {
         self.update(span, CounterUpdate::Step(level))
     }
@@ -549,7 +550,7 @@ pub enum CounterUpdate {
     /// Set the counter to the specified state.
     Set(CounterState),
     /// Increase the number for the given level by one.
-    Step(NonZeroUsize),
+    Step(NonZeroU32),
     /// Apply the given function to the counter's state.
     Func(Func),
 }
@@ -597,8 +598,8 @@ impl CounterState {
     }
 
     /// Advance the number of the given level by the specified amount.
-    pub fn step(&mut self, level: NonZeroUsize, by: u64) {
-        let level = level.get();
+    pub fn step(&mut self, level: NonZeroU32, by: u64) {
+        let level = level.get().saturating_as();
 
         while self.0.len() < level {
             self.0.push(0);
@@ -776,7 +777,7 @@ impl Introspect for CounterAtIntrospection {
         let (mut state, page) = sequence[offset].clone();
         if counter.is_page() {
             let delta = introspector.page(*loc).get().saturating_sub(page.get());
-            state.step(NonZeroUsize::ONE, delta as u64);
+            state.step(NonZeroU32::ONE, delta as u64);
         }
         Ok(state)
     }
@@ -806,9 +807,9 @@ impl Introspect for CounterBothIntrospection {
         let (mut final_state, final_page) = sequence.last().unwrap().clone();
         if counter.is_page() {
             let at_delta = introspector.page(*loc).get().saturating_sub(at_page.get());
-            at_state.step(NonZeroUsize::ONE, at_delta as u64);
+            at_state.step(NonZeroU32::ONE, at_delta as u64);
             let final_delta = introspector.pages().get().saturating_sub(final_page.get());
-            final_state.step(NonZeroUsize::ONE, final_delta as u64);
+            final_state.step(NonZeroU32::ONE, final_delta as u64);
         }
         Ok(CounterState(smallvec![at_state.first(), final_state.first()]))
     }
@@ -835,7 +836,7 @@ impl Introspect for CounterFinalIntrospection {
         let (mut state, page) = sequence.last().unwrap().clone();
         if counter.is_page() {
             let delta = introspector.pages().get().saturating_sub(page.get());
-            state.step(NonZeroUsize::ONE, delta as u64);
+            state.step(NonZeroU32::ONE, delta as u64);
         }
         Ok(state)
     }
@@ -897,13 +898,13 @@ fn sequence_impl(
 
             let delta = page.get() - prev.get();
             if delta > 0 {
-                current.step(NonZeroUsize::ONE, delta as u64);
+                current.step(NonZeroU32::ONE, delta as u64);
             }
         }
 
         if let Some(update) = match elem.with::<dyn Count>() {
             Some(countable) => countable.update(),
-            None => Some(CounterUpdate::Step(NonZeroUsize::ONE)),
+            None => Some(CounterUpdate::Step(NonZeroU32::ONE)),
         } {
             current.update(&mut engine, update)?;
         }

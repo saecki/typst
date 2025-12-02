@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::num::NonZeroU32;
 
 use ecow::EcoString;
 use typst_utils::NonZeroExt;
@@ -93,7 +93,7 @@ pub struct HeadingElem {
     /// = Also level 2
     /// == Level 3
     /// ```
-    pub level: Smart<NonZeroUsize>,
+    pub level: Smart<NonZeroU32>,
 
     /// The relative nesting depth of the heading, starting from one. This is
     /// combined with `{offset}` to compute the actual `{level}`.
@@ -102,8 +102,8 @@ pub struct HeadingElem {
     /// heading with logical depth of 2, but actual level `{offset + 2}`. If you
     /// construct a heading manually, you should typically prefer this over
     /// setting the absolute level.
-    #[default(NonZeroUsize::ONE)]
-    pub depth: NonZeroUsize,
+    #[default(NonZeroU32::ONE)]
+    pub depth: NonZeroU32,
 
     /// The starting offset of each heading's `{level}`, used to turn its
     /// relative `{depth}` into its absolute `{level}`.
@@ -119,7 +119,7 @@ pub struct HeadingElem {
     /// ]
     /// ```
     #[default(0)]
-    pub offset: usize,
+    pub offset: u32,
 
     /// How to number the heading. Accepts a
     /// [numbering pattern or function]($numbering) taking multiple numbers.
@@ -226,10 +226,12 @@ pub struct HeadingElem {
 }
 
 impl HeadingElem {
-    pub fn resolve_level(&self, styles: StyleChain) -> NonZeroUsize {
+    pub fn resolve_level(&self, styles: StyleChain) -> NonZeroU32 {
         self.level.get(styles).unwrap_or_else(|| {
-            NonZeroUsize::new(self.offset.get(styles) + self.depth.get(styles).get())
-                .expect("overflow to 0 on NoneZeroUsize + usize")
+            NonZeroU32::new(
+                self.offset.get(styles).saturating_add(self.depth.get(styles).get()),
+            )
+            .unwrap()
         })
     }
 }
@@ -329,7 +331,7 @@ impl Outlinable for Packed<HeadingElem> {
         self.outlined.get(StyleChain::default())
     }
 
-    fn level(&self) -> NonZeroUsize {
+    fn level(&self) -> NonZeroU32 {
         self.resolve_level(StyleChain::default())
     }
 

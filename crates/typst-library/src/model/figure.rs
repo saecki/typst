@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::num::NonZeroUsize;
+use std::num::NonZeroU32;
 use std::str::FromStr;
 
 use ecow::EcoString;
@@ -424,7 +424,7 @@ impl Count for Packed<FigureElem> {
         // This steps the `counter(figure)` which is global to all numbered figures.
         self.numbering()
             .is_some()
-            .then(|| CounterUpdate::Step(NonZeroUsize::ONE))
+            .then(|| CounterUpdate::Step(NonZeroU32::ONE))
     }
 }
 

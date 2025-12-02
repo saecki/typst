@@ -1,6 +1,7 @@
-use std::num::NonZeroUsize;
+use std::num::NonZeroU32;
 use std::str::FromStr;
 
+use az::SaturatingAs;
 use comemo::Tracked;
 use smallvec::SmallVec;
 use typst_syntax::Span;
@@ -202,7 +203,7 @@ pub struct OutlineElem {
     /// === Nope
     /// Not included.
     /// ```
-    pub depth: Option<NonZeroUsize>,
+    pub depth: Option<NonZeroU32>,
 
     /// How to indent the outline's entries.
     ///
@@ -263,7 +264,7 @@ impl Packed<OutlineElem> {
             })
             .map(|title| {
                 HeadingElem::new(title)
-                    .with_depth(NonZeroUsize::ONE)
+                    .with_depth(NonZeroU32::ONE)
                     .pack()
                     .spanned(span)
             })
@@ -300,12 +301,12 @@ impl Packed<OutlineElem> {
         &self,
         engine: &mut Engine,
         styles: StyleChain,
-    ) -> impl Iterator<Item = SourceResult<(Packed<OutlineEntry>, NonZeroUsize, bool)>>
+    ) -> impl Iterator<Item = SourceResult<(Packed<OutlineEntry>, NonZeroU32, bool)>>
     {
         let span = self.span();
         let elems =
             engine.introspect(QueryIntrospection(self.target.get_cloned(styles).0, span));
-        let depth = self.depth.get(styles).unwrap_or(NonZeroUsize::MAX);
+        let depth = self.depth.get(styles).unwrap_or(NonZeroU32::MAX);
         elems.into_iter().map(move |elem| {
             let Some(outlinable) = elem.with::<dyn Outlinable>() else {
                 bail!(self.span(), "cannot outline {}", elem.func().name());
@@ -324,7 +325,7 @@ pub struct OutlineNode<T = Packed<OutlineEntry>> {
     /// The entry itself.
     pub entry: T,
     /// The entry's level.
-    pub level: NonZeroUsize,
+    pub level: NonZeroU32,
     /// Its descendants.
     pub children: Vec<OutlineNode<T>>,
 }
@@ -336,7 +337,7 @@ impl<T> OutlineNode<T> {
     /// - a level
     /// - a boolean indicating whether it is included (`true`) or skipped (`false`)
     pub fn build_tree(
-        flat: impl IntoIterator<Item = (T, NonZeroUsize, bool)>,
+        flat: impl IntoIterator<Item = (T, NonZeroU32, bool)>,
     ) -> Vec<Self> {
         // Stores the level of the topmost skipped ancestor of the next included
         // heading.
@@ -427,7 +428,7 @@ impl OutlineIndent {
         &self,
         engine: &mut Engine,
         context: Tracked<Context>,
-        level: NonZeroUsize,
+        level: NonZeroU32,
         span: Span,
     ) -> SourceResult<Rel> {
         let depth = level.get() - 1;
@@ -454,8 +455,8 @@ pub trait Outlinable: Refable {
     fn outlined(&self) -> bool;
 
     /// The nesting level of this element.
-    fn level(&self) -> NonZeroUsize {
-        NonZeroUsize::ONE
+    fn level(&self) -> NonZeroU32 {
+        NonZeroU32::ONE
     }
 
     /// Constructs the default prefix given the formatted numbering.
@@ -475,7 +476,7 @@ pub struct OutlineEntry {
     /// The nesting level of this outline entry. Starts at `{1}` for top-level
     /// entries.
     #[required]
-    pub level: NonZeroUsize,
+    pub level: NonZeroU32,
 
     /// The element this entry refers to. Its location will be available
     /// through the [`location`]($content.location) method on the content
@@ -790,7 +791,7 @@ fn compute_auto_indents(
     engine: &mut Engine,
     outline_loc: Location,
     styles: StyleChain,
-    level: NonZeroUsize,
+    level: NonZeroU32,
     prefix_inset: Option<Abs>,
     span: Span,
 ) -> (Rel, Option<Abs>) {
@@ -803,7 +804,7 @@ fn compute_auto_indents(
     let fallback = Em::new(1.2).resolve(styles);
     let get = |i: usize| indents.get(i).copied().flatten().unwrap_or(fallback);
 
-    let last = level.get() - 1;
+    let last = (level.get() - 1).saturating_as();
     let base: Abs = (0..last).map(get).sum();
     let hang = prefix_inset.map(|p| p.max(get(last)));
 
@@ -818,7 +819,7 @@ fn determine_prefix_widths(elems: &[Content]) -> SmallVec<[Option<Abs>; 4]> {
     let mut widths = SmallVec::<[Option<Abs>; 4]>::new();
     for elem in elems {
         let info = elem.to_packed::<PrefixInfo>().unwrap();
-        let level = info.level.get();
+        let level = info.level.get().saturating_as();
         if widths.len() < level {
             widths.resize(level, None);
         }
@@ -838,7 +839,7 @@ pub(crate) struct PrefixInfo {
     /// The level of this prefix's entry.
     #[required]
     #[internal]
-    level: NonZeroUsize,
+    level: NonZeroU32,
 
     /// The width of the prefix, including the gap.
     #[required]

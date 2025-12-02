@@ -77,7 +77,7 @@ using the lazy interface would only need to traverse each node once, improving
 throughput at the cost of initial latency and development flexibility.
 */
 
-use std::num::NonZeroUsize;
+use std::num::NonZeroU32;
 use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
@@ -752,12 +752,12 @@ impl<'a> Heading<'a> {
     }
 
     /// The section depth (number of equals signs).
-    pub fn depth(self) -> NonZeroUsize {
+    pub fn depth(self) -> NonZeroU32 {
         self.0
             .children()
             .find(|node| node.kind() == SyntaxKind::HeadingMarker)
-            .and_then(|node| node.len().try_into().ok())
-            .unwrap_or(NonZeroUsize::new(1).unwrap())
+            .and_then(|node| NonZeroU32::new(u32::try_from(node.len()).ok()?))
+            .unwrap_or(NonZeroU32::MAX)
     }
 }
 

@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::num::NonZeroU32;
 
 use typst_library::diag::SourceResult;
 use typst_library::engine::Engine;
@@ -881,7 +881,7 @@ fn layout_line_number(
     numbering: &Numbering,
 ) -> SourceResult<Frame> {
     let counter = Counter::of(ParLineMarker::ELEM);
-    let update = CounterUpdate::Step(NonZeroUsize::ONE);
+    let update = CounterUpdate::Step(NonZeroU32::ONE);
     let numbering = Smart::Custom(numbering.clone());
 
     // Combine counter update and display into the content we'll layout.

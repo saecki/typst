@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::num::NonZeroU32;
 use std::str::FromStr;
 
 use ecow::{EcoString, eco_format};
@@ -169,7 +169,7 @@ impl Packed<FootnoteElem> {
 
 impl Count for Packed<FootnoteElem> {
     fn update(&self) -> Option<CounterUpdate> {
-        (!self.is_ref()).then(|| CounterUpdate::Step(NonZeroUsize::ONE))
+        (!self.is_ref()).then(|| CounterUpdate::Step(NonZeroU32::ONE))
     }
 }
 

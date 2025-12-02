@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::num::NonZeroU32;
 
 use codex::styling::MathVariant;
 use ecow::EcoString;
@@ -213,7 +213,7 @@ impl ShowSet for Packed<EquationElem> {
 impl Count for Packed<EquationElem> {
     fn update(&self) -> Option<CounterUpdate> {
         (self.block.get(StyleChain::default()) && self.numbering().is_some())
-            .then(|| CounterUpdate::Step(NonZeroUsize::ONE))
+            .then(|| CounterUpdate::Step(NonZeroU32::ONE))
     }
 }
 

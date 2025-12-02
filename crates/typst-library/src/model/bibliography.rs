@@ -1,7 +1,7 @@
 use std::any::TypeId;
 use std::ffi::OsStr;
 use std::fmt::{self, Debug, Formatter};
-use std::num::NonZeroUsize;
+use std::num::NonZeroU32;
 use std::path::Path;
 use std::sync::{Arc, LazyLock};
 
@@ -200,7 +200,7 @@ impl Packed<BibliographyElem> {
             })
             .map(|title| {
                 HeadingElem::new(title)
-                    .with_depth(NonZeroUsize::ONE)
+                    .with_depth(NonZeroU32::ONE)
                     .pack()
                     .spanned(self.span())
             })
