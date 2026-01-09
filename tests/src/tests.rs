@@ -12,6 +12,7 @@ mod world;
 
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -23,6 +24,7 @@ use rustc_hash::FxHashMap;
 use crate::args::{CliArguments, Command};
 use crate::collect::{Test, TestParseErrorKind};
 use crate::logger::{Logger, TestResult};
+use crate::output::{HASH_OUTPUTS, HashedRefs};
 
 /// The parsed command line arguments.
 static ARGS: LazyLock<CliArguments> = LazyLock::new(CliArguments::parse);
@@ -77,7 +79,7 @@ fn setup() {
 }
 
 fn test() {
-    let (hashes, tests, skipped) = match crate::collect::collect() {
+    let (mut hashes, tests, skipped) = match crate::collect::collect() {
         Ok(output) => output,
         Err(errors) => {
             eprintln!("failed to collect tests");
@@ -87,6 +89,36 @@ fn test() {
             std::process::exit(1);
         }
     };
+
+    if let Some(rev) = &ARGS.base_revision {
+        match run::git_command(&["cat-file", "-t", rev]) {
+            Ok(out) => {
+                let object = std::str::from_utf8(&out).map(str::trim);
+                if object != Ok("commit") {
+                    eprint!("❌ base-revision is not a commit: {rev}");
+                    if let Ok(object) = object {
+                        eprint!(" ({object})");
+                    }
+                    eprintln!();
+                    std::process::exit(1);
+                }
+            }
+            Err(err) => {
+                eprintln!("❌ failed to read base-revision: {err}");
+                std::process::exit(1);
+            }
+        }
+
+        // Read the reference hashes at the specified git base revision instead.
+        hashes = HASH_OUTPUTS.map(|output| {
+            run::read_git_file(rev, &output.hash_refs_path())
+                .and_then(|data| {
+                    let string = std::str::from_utf8(&data).ok()?;
+                    HashedRefs::from_str(string).ok()
+                })
+                .unwrap_or_default()
+        });
+    }
 
     let selected = tests.len();
     if ARGS.list {
@@ -145,8 +177,10 @@ fn test() {
         sender.send(()).unwrap();
     });
 
-    run::update_hash_refs::<output::Pdf>(&hashes);
-    run::update_hash_refs::<output::Svg>(&hashes);
+    if ARGS.update {
+        run::update_hash_refs::<output::Pdf>(&hashes);
+        run::update_hash_refs::<output::Svg>(&hashes);
+    }
 
     let mut logger = logger.into_inner();
 

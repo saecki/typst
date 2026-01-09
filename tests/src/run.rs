@@ -345,7 +345,7 @@ impl<'a> Runner<'a> {
         let live_path = T::OUTPUT.live_path(&self.test.name);
         let ref_path = T::OUTPUT.file_ref_path(&self.test.name);
 
-        let old_ref_data = std::fs::read(&ref_path).ok();
+        let old_ref_data = read_ref_data(&ref_path);
 
         let live = match self.expect_output::<T>(&output) {
             Ok(non_empty) => match non_empty.and(output) {
@@ -698,4 +698,38 @@ pub fn make_report<T: OutputType>(
         .map(|(path, data)| (path.as_ref(), data.as_ref().map(|d| d.as_ref())));
     let b = b.as_ref().map(|(path, data)| (path.as_ref(), data.as_ref()));
     T::make_report(a, b.ok_or(()))
+}
+
+/// Read a reference file either from a specific git base revision, or from
+/// the file system.
+pub fn read_ref_data(ref_path: &Path) -> Option<Vec<u8>> {
+    match &ARGS.base_revision {
+        Some(rev) => read_git_file(rev, ref_path),
+        None => std::fs::read(ref_path).ok(),
+    }
+}
+
+/// Read a file from a specific git revision.
+pub fn read_git_file(revision: &str, ref_path: &Path) -> Option<Vec<u8>> {
+    let rev_file = format!("{revision}:{}", ref_path.display());
+    git_command(&["show", &rev_file]).ok()
+}
+
+/// Read a file from a specific git revision.
+pub fn git_command(args: &[&str]) -> Result<Vec<u8>, String> {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .output()
+        .map_err(|err| err.to_string())?;
+    if !output.stderr.is_empty() {
+        let message = match String::from_utf8(output.stderr) {
+            Ok(msg) => msg,
+            Err(err) => err.to_string(),
+        };
+        return Err(message);
+    }
+    if output.stdout.is_empty() {
+        return Err("stdout is empty".into());
+    }
+    Ok(output.stdout)
 }
