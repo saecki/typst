@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use ecow::EcoString;
 
+use crate::ARGS;
 use crate::collect::Test;
 use crate::report::{FileReport, TestReport};
 
@@ -94,10 +95,20 @@ impl<'a> Logger<'a> {
 
         self.print(move |out| {
             if !result.errors.is_empty() {
-                writeln!(out, "❌ {test}")?;
-                if !crate::ARGS.compact {
+                if ARGS.use_github_annotations {
+                    let file = test.pos.path.display();
+                    let line = test.pos.line;
+                    write!(out, "::error file={file},line={line}::{test}")?;
                     for line in result.errors.lines() {
-                        writeln!(out, "  {line}")?;
+                        write!(out, "%0A  {line}")?;
+                    }
+                    writeln!(out)?;
+                } else {
+                    writeln!(out, "❌ {test}")?;
+                    if !crate::ARGS.compact {
+                        for line in result.errors.lines() {
+                            writeln!(out, "  {line}")?;
+                        }
                     }
                 }
             } else if crate::ARGS.verbose || !result.infos.is_empty() {

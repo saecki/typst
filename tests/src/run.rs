@@ -3,14 +3,17 @@ use std::ops::Range;
 use std::path::Path;
 use std::sync::LazyLock;
 
+use ecow::{EcoString, eco_format};
 use parking_lot::RwLock;
 use regex::{Captures, Regex};
+use time::format_description::well_known::Rfc3339;
 use typst::WorldExt;
-use typst::diag::{SourceDiagnostic, Warned};
+use typst::diag::{SourceDiagnostic, StrResult, Warned, bail};
 use typst::foundations::{Content, Repr};
 use typst::layout::PagedDocument;
 use typst_html::HtmlDocument;
 use typst_syntax::FileId;
+use unscanny::Scanner;
 
 use crate::collect::{
     FileSize, NoteKind, Test, TestEval, TestOutput, TestOutputKind, TestStage,
@@ -544,7 +547,7 @@ impl<'a> Runner<'a> {
         });
         match old_live_data {
             Ok(data) => Old::Data(data),
-            Err(_) => Old::Missing,
+            Err(_) => Old::Missing(old_hash),
         }
     }
 
@@ -719,16 +722,72 @@ pub fn read_git_file(revision: &str, ref_path: &Path) -> Option<Vec<u8>> {
     git_command(&["show", &rev_file]).ok()
 }
 
-/// Read a file from a specific git revision.
-pub fn git_command(args: &[&str]) -> Result<Vec<u8>, String> {
+/// Runs git blame on the file path and returns a list of of git revision,
+/// timestamp, and line-text tuples.
+pub fn git_blame_file(path: &Path) -> StrResult<Vec<(EcoString, i64, EcoString)>> {
+    let blame =
+        git_command(&["blame", "-e", "--date=iso8601-strict", path.to_str().unwrap()])?;
+    let blame = std::str::from_utf8(&blame).map_err(|err| err.to_string())?;
+
+    // Format of git blame is:
+    // `<hash> <padded_nr>) <text>
+    blame
+        .lines()
+        .map(|line| {
+            let mut s = Scanner::new(line);
+
+            let hash = s.eat_until(char::is_whitespace);
+            s.eat_whitespace();
+
+            if !s.eat_if('(') {
+                bail!("expected `(`");
+            }
+
+            // email
+            if !s.eat_if('<') {
+                bail!("expected email start (`<`)");
+            }
+            s.eat_until('>');
+            if !s.eat_if('>') {
+                bail!("expected email end (`<`)");
+            }
+            s.eat_whitespace();
+
+            // date
+            let date = s.eat_until(char::is_whitespace);
+            s.eat_whitespace();
+
+            // line number
+            s.eat_until(')');
+            if !s.eat_if(')') {
+                bail!("expected `)`");
+            }
+
+            if !s.eat_if(' ') {
+                bail!("expected single whitespace before line text");
+            }
+
+            // RFC 3339 is essentially the strict ISO-8601 format.
+            let date = time::OffsetDateTime::parse(date, &Rfc3339)
+                .map_err(|err| eco_format!("failed to parse date: {err}"))?;
+
+            let text = s.after();
+
+            Ok((hash.into(), date.unix_timestamp(), text.into()))
+        })
+        .collect::<StrResult<_>>()
+}
+
+/// Runa  git command
+pub fn git_command(args: &[&str]) -> StrResult<Vec<u8>> {
     let output = std::process::Command::new("git")
         .args(args)
         .output()
         .map_err(|err| err.to_string())?;
     if !output.stderr.is_empty() {
-        let message = match String::from_utf8(output.stderr) {
-            Ok(msg) => msg,
-            Err(err) => err.to_string(),
+        let message = match std::str::from_utf8(&output.stderr) {
+            Ok(msg) => EcoString::from(msg),
+            Err(err) => bail!("{err}"),
         };
         return Err(message);
     }

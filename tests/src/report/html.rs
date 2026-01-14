@@ -6,12 +6,9 @@ use rustc_hash::FxHashMap;
 use xmlwriter::XmlWriter;
 
 use crate::collect::FileSize;
+use crate::report::diff::{FileDiff, Image, Line, LineKind, Lines, TextSpan};
 use crate::report::html::icons::SvgIcon;
-use crate::report::{
-    DiffKind, File, FileDiff, FileReport, Image, Line, Lines, TestReport, TextSpan,
-};
-
-use super::LineKind;
+use crate::report::{DiffKind, File, FileReport, TestReport};
 
 #[rustfmt::skip]
 mod icons {
