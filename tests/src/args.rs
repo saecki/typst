@@ -102,11 +102,6 @@ impl CliArguments {
             })
         })
     }
-
-    /// Whether the stage should be run depending on the `--stages` flag.
-    pub fn should_run(&self, stage: TestStages) -> bool {
-        self.stages().intersects(stage)
-    }
 }
 
 /// What to do.
