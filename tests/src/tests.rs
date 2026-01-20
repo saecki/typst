@@ -12,6 +12,7 @@ mod world;
 
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 use std::str::FromStr;
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -47,14 +48,39 @@ const SKIP_PATH: &str = "tests/skip.txt";
 /// The maximum size of reference output that isn't marked as `large`.
 const REF_LIMIT: usize = 20 * 1024;
 
-fn main() {
+mod exit {
+    use std::process::ExitCode;
+
+    pub type Result<T> = std::result::Result<T, Error>;
+
+    /// Failure exit status codes of the test suite.
+    pub enum Error {
+        /// A generic error occurred.
+        Generic = 1,
+        /// The report generation is missing old live output.
+        ///
+        /// This is a hint for the CI to regenerate the missing output.
+        MissingOld = 2,
+    }
+
+    pub fn report(res: Result<()>) -> std::process::ExitCode {
+        ExitCode::from(match res {
+            Ok(_) => 0,
+            Err(err) => err as u8,
+        })
+    }
+}
+
+fn main() -> ExitCode {
     setup();
 
-    match &ARGS.command {
+    let res = match &ARGS.command {
         None => test(),
         Some(Command::Clean) => clean(),
         Some(Command::Undangle) => undangle(),
-    }
+    };
+
+    exit::report(res)
 }
 
 fn setup() {
@@ -78,7 +104,7 @@ fn setup() {
     }
 }
 
-fn test() {
+fn test() -> exit::Result<()> {
     let (mut hashes, tests, skipped) = match crate::collect::collect() {
         Ok(output) => output,
         Err(errors) => {
@@ -86,7 +112,7 @@ fn test() {
             for error in errors {
                 eprintln!("❌ {error}");
             }
-            std::process::exit(1);
+            return Err(exit::Error::Generic);
         }
     };
 
@@ -100,12 +126,12 @@ fn test() {
                         eprint!(" ({object})");
                     }
                     eprintln!();
-                    std::process::exit(1);
+                    return Err(exit::Error::Generic);
                 }
             }
             Err(err) => {
                 eprintln!("❌ failed to read base-revision: {err}");
-                std::process::exit(1);
+                return Err(exit::Error::Generic);
             }
         }
 
@@ -126,10 +152,10 @@ fn test() {
             println!("{test}");
         }
         eprintln!("{selected} selected, {skipped} skipped");
-        return;
+        return Ok(());
     } else if selected == 0 {
         eprintln!("no test selected");
-        return;
+        return Ok(());
     }
 
     let parser_dirs = ARGS.parser_compare.clone().map(create_syntax_store);
@@ -193,17 +219,15 @@ fn test() {
         _ = std::fs::remove_file(report_path);
     }
 
-    let passed = logger.finish();
-    if !passed {
-        std::process::exit(1);
-    }
+    logger.finish()
 }
 
-fn clean() {
+fn clean() -> exit::Result<()> {
     std::fs::remove_dir_all(STORE_PATH).unwrap();
+    Ok(())
 }
 
-fn undangle() {
+fn undangle() -> exit::Result<()> {
     match crate::collect::collect() {
         Ok(_) => eprintln!("no dangling reference output"),
         Err(errors) => {
@@ -244,6 +268,8 @@ fn undangle() {
             }
         }
     }
+
+    Ok(())
 }
 
 fn create_syntax_store(ref_path: Option<PathBuf>) -> (&'static Path, Option<PathBuf>) {

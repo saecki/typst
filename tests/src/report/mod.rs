@@ -54,6 +54,15 @@ pub enum DiffKind {
     Image(FileDiff<Image>),
 }
 
+impl DiffKind {
+    pub fn is_missing_old(&self) -> bool {
+        match self {
+            DiffKind::Text(diff) => diff.left().is_some_and(|old| old.is_missing()),
+            DiffKind::Image(diff) => diff.left().is_some_and(|old| old.is_missing()),
+        }
+    }
+}
+
 pub enum FileDiff<T> {
     /// There is a diff.
     Diff(Old<T>, Result<T, ()>),
@@ -87,6 +96,10 @@ pub enum Old<T> {
 }
 
 impl<T> Old<T> {
+    pub fn is_missing(&self) -> bool {
+        matches!(self, Self::Missing)
+    }
+
     pub fn data(&self) -> Option<&T> {
         match self {
             Old::Data(d) => Some(d),

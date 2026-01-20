@@ -4,7 +4,8 @@ use std::time::{Duration, Instant};
 use ecow::EcoString;
 
 use crate::collect::Test;
-use crate::report::{FileReport, TestReport};
+use crate::exit;
+use crate::report::{DiffKind, FileReport, TestReport};
 
 /// The result of running a single test.
 pub struct TestResult {
@@ -112,7 +113,7 @@ impl<'a> Logger<'a> {
     }
 
     /// Prints a summary and returns whether the test suite passed.
-    pub fn finish(self) -> bool {
+    pub fn finish(self) -> exit::Result<()> {
         let Self { selected, passed, failed, skipped, .. } = self;
 
         eprintln!("{passed} passed, {failed} failed, {skipped} skipped");
@@ -122,7 +123,20 @@ impl<'a> Logger<'a> {
             eprintln!("  pass the --update flag to update the reference output");
         }
 
-        self.failed == 0
+        if self.failed == 0 {
+            return Ok(());
+        }
+
+        let is_missing_old = (self.reports.iter())
+            .flat_map(|report| report.files.iter())
+            .flat_map(|file| file.diffs.iter())
+            .any(DiffKind::is_missing_old);
+
+        if is_missing_old {
+            Err(exit::Error::MissingOld)
+        } else {
+            Err(exit::Error::Generic)
+        }
     }
 
     /// Refresh the status. Returns whether we still seem to be making progress.
