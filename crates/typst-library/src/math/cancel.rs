@@ -29,7 +29,7 @@ pub struct CancelElem {
     /// $ a + cancel(x, length: #200%)
     ///     - cancel(x, length: #200%) $
     /// ```
-    #[default(Rel::new(Ratio::one(), Em::new(0.3).into()))]
+    #[default(Rel::new(Ratio::one(), Em::new(0.35).into()))]
     pub length: Rel<Length>,
 
     /// Whether the cancel line should be inverted (flipped along the y-axis).
