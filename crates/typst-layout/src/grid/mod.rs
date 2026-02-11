@@ -60,10 +60,10 @@ pub fn layout_cell(
 
     // All elements directly passed into grid layout should be `Locatable`,
     // `Tagged`, or empty content. Empty content will always produce empty
-    // frames, which would be handled above. So this element *should* be
-    // `Locatable` or `Tagged` and will generate introspection tags to ensure
-    // the logical parenting mechanism can be used to associate parts of the
-    // laid-out element with the first frame.
+    // frames, which is handled above. So this element *should* be `Locatable`
+    // or `Tagged` and will generate introspection tags to ensure the logical
+    // parenting mechanism can be used to associate parts of the laid-out
+    // element with the first frame.
     // Currently the only ones directly used are: `GridCell`, `TableCell`,
     // `ListItemLabel`, `ListItemBody`.
     assert_internal(
@@ -88,7 +88,7 @@ pub fn layout_cell(
     // ordering in the introspector, since logical children are currently
     // inserted immediately after the start tag of the parent element
     // preceding any content within the parent element's tags.
-    for frame in frames[first_idx..=last_idx].iter_mut() {
+    for frame in frames.iter_mut() {
         frame.set_parent(FrameParent::new(loc, Inherit::Yes));
     }
     frames[0].prepend_multiple([start_tag, end_tag]);

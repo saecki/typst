@@ -153,6 +153,8 @@ fn layout_fragment_impl(
         styles,
     )?;
 
+    dbg!(kind, &children);
+
     layout_flow(
         &mut engine,
         &children,
