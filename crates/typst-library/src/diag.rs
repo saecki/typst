@@ -276,7 +276,7 @@ impl From<SyntaxError> for SourceDiagnostic {
             span: error.span,
             message: error.message,
             trace: eco_vec![],
-            hints: error.hints.into_iter().map(Spanned::detached).collect(),
+            hints: error.hints,
         }
     }
 }

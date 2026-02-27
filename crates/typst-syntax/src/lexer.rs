@@ -8,7 +8,7 @@ use unicode_script::{Script, UnicodeScript};
 use unicode_segmentation::UnicodeSegmentation;
 use unscanny::Scanner;
 
-use crate::{SyntaxError, SyntaxKind, SyntaxMode, SyntaxNode};
+use crate::{Spanned, SyntaxError, SyntaxKind, SyntaxMode, SyntaxNode};
 
 /// An iterator over a source code string which returns tokens.
 #[derive(Clone)]
@@ -80,7 +80,7 @@ impl Lexer<'_> {
     /// If the current node is an error, adds a hint.
     fn hint(&mut self, message: impl Into<EcoString>) {
         if let Some(error) = &mut self.error {
-            error.hints.push(message.into());
+            error.hint(Spanned::detached(message.into()));
         }
     }
 }

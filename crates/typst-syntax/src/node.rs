@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use ecow::{EcoString, EcoVec, eco_format, eco_vec};
 
-use crate::{FileId, Span, SyntaxKind};
+use crate::{FileId, Span, Spanned, SyntaxKind};
 
 /// A node in the untyped syntax tree.
 #[derive(Clone, Eq, PartialEq, Hash)]
@@ -145,6 +145,13 @@ impl SyntaxNode {
 
     /// Add a user-presentable hint if this is an error node.
     pub fn hint(&mut self, hint: impl Into<EcoString>) {
+        if let NodeKind::Error(node) = &mut self.0 {
+            Arc::make_mut(node).hint(Spanned::detached(hint.into()));
+        }
+    }
+
+    /// Add a user-presentable hint if this is an error node.
+    pub fn spanned_hint(&mut self, hint: Spanned<EcoString>) {
         if let NodeKind::Error(node) = &mut self.0 {
             Arc::make_mut(node).hint(hint);
         }
@@ -617,8 +624,8 @@ impl ErrorNode {
     }
 
     /// Add a user-presentable hint to this error node.
-    fn hint(&mut self, hint: impl Into<EcoString>) {
-        self.error.hints.push(hint.into());
+    fn hint(&mut self, hint: Spanned<EcoString>) {
+        self.error.hint(hint);
     }
 
     /// Whether the two leaf nodes are the same apart from spans.
@@ -642,7 +649,7 @@ pub struct SyntaxError {
     pub message: EcoString,
     /// Additional hints to the user, indicating how this error could be avoided
     /// or worked around.
-    pub hints: EcoVec<EcoString>,
+    pub hints: EcoVec<Spanned<EcoString>>,
 }
 
 impl SyntaxError {
@@ -653,6 +660,11 @@ impl SyntaxError {
             message: message.into(),
             hints: eco_vec![],
         }
+    }
+
+    /// Add a user-presentable hint to this error node.
+    pub fn hint(&mut self, hint: Spanned<EcoString>) {
+        self.hints.push(hint);
     }
 
     /// Whether the two errors are the same apart from spans.

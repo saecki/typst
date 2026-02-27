@@ -2024,6 +2024,7 @@ impl Parser<'_> {
     fn expect_closing_delimiter(&mut self, open: Marker, kind: SyntaxKind) {
         if !self.eat_if(kind) {
             self.nodes[open.0].convert_to_error("unclosed delimiter");
+            self.token.node.convert_to_error("closed here");
         }
     }
 

@@ -181,3 +181,28 @@
 
 // Error: 2-3 unknown variable: x
 #x
+
+--- unclosed-delimiter eval ---
+#import "@preview/cetz:0.4.2"
+#import "@preview/cetz-plot:0.1.3"
+
+// Error: 14-15 unclosed delimiter
+#cetz.canvas({
+    import cetz.draw: *
+    import cetz-plot: *
+    let h = 4
+    let r = 6
+    // Error: 55-56 closed here
+    let f(x) = 1 + (h - 1)*calc.pow(x,2)/calc.pow(r,2))
+    let g(x) = h*calc.pow(x,2)/calc.pow(r,2)
+    plot.plot(
+      size: (15,5),
+      axis-style: "school-book",
+      y-tick-step:2,
+      x-tick-step:2,
+      x-grid: true,
+      y-grid: true,{
+      plot.add(domain: (-8,8),f)
+      plot.add(domain: (-8,8),g)
+    })
+})
