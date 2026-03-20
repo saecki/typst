@@ -15,7 +15,7 @@ use typst_syntax::Span;
 use typst_utils::{PicoStr, ResolvedPicoStr};
 
 use crate::document::HtmlOutput;
-use crate::{HtmlIntrospector, attr, charsets, css};
+use crate::{HtmlIntrospector, attr, charsets, css, tag};
 
 /// An HTML document.
 ///
@@ -124,6 +124,15 @@ impl HtmlNode {
             Self::Frame(frame) => frame.span,
         }
     }
+
+    /// Whether the node is considered phrasing content, forwards to
+    /// [`tag::is_phrasing_content`].
+    pub fn is_phrasing_content(&self) -> bool {
+        match self {
+            HtmlNode::Element(elem) => tag::is_phrasing_content(elem.tag),
+            _ => true,
+        }
+    }
 }
 
 impl From<Tag> for HtmlNode {
@@ -201,6 +210,12 @@ pub struct HtmlElement {
     /// the `white-space` CSS property is enough), it ensures that formatters
     /// won't mess up the output.
     pub pre_span: bool,
+    /// Whether this is a par element represented by a `<div>`, instead of a
+    /// `<p>`, because it contains non phrasing content.
+    pub par_div: bool,
+    /// Whether this is a box element represented by a `<div>`, instead of a
+    /// <span>, because it contains non phrasing content.
+    pub box_div: bool,
 }
 
 impl HtmlElement {
@@ -213,6 +228,8 @@ impl HtmlElement {
             parent: None,
             span: Span::detached(),
             pre_span: false,
+            box_div: false,
+            par_div: false,
         }
     }
 

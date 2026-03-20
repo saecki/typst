@@ -156,9 +156,9 @@ fn write_element(w: &mut Writer, element: &HtmlElement) -> SourceResult<()> {
 /// Encodes the children of an element.
 fn write_children(w: &mut Writer, element: &HtmlElement) -> SourceResult<()> {
     let pretty = w.pretty;
-    let pretty_inside = allows_pretty_inside(element.tag)
+    let pretty_inside = allows_pretty_inside(element)
         && element.children.iter().any(|node| match node {
-            HtmlNode::Element(child) => wants_pretty_around(child.tag),
+            HtmlNode::Element(child) => wants_pretty_around(child),
             HtmlNode::Frame(_) => true,
             _ => false,
         });
@@ -170,7 +170,7 @@ fn write_children(w: &mut Writer, element: &HtmlElement) -> SourceResult<()> {
     for c in &element.children {
         let pretty_around = match c {
             HtmlNode::Tag(_) => continue,
-            HtmlNode::Element(child) => w.pretty && wants_pretty_around(child.tag),
+            HtmlNode::Element(child) => w.pretty && wants_pretty_around(child),
             HtmlNode::Text(..) | HtmlNode::Frame(_) => false,
         };
 
@@ -323,10 +323,14 @@ impl RawMode {
 /// <https://www.w3.org/TR/css-text-3/#example-af2745cd> shows how adding CSS
 /// rules to `<p>` can make it sensitive to whitespace. For this reason, we
 /// should also respect the `style` tag in the future.
-fn allows_pretty_inside(tag: HtmlTag) -> bool {
-    (tag::is_block_by_default(tag) && tag != tag::pre)
-        || tag::is_tabular_by_default(tag)
-        || tag == tag::li
+fn allows_pretty_inside(element: &HtmlElement) -> bool {
+    if element.par_div {
+        return false;
+    }
+
+    (tag::is_block_by_default(element.tag) && element.tag != tag::pre)
+        || tag::is_tabular_by_default(element.tag)
+        || element.tag == tag::li
 }
 
 /// Whether newlines should be added before and after the element if the parent
@@ -334,8 +338,15 @@ fn allows_pretty_inside(tag: HtmlTag) -> bool {
 ///
 /// In contrast to `allows_pretty_inside`, which is purely spec-driven, this is
 /// more subjective and depends on preference.
-fn wants_pretty_around(tag: HtmlTag) -> bool {
-    allows_pretty_inside(tag) || tag::is_metadata_content(tag) || tag == tag::pre
+fn wants_pretty_around(element: &HtmlElement) -> bool {
+    if element.box_div {
+        return false;
+    }
+
+    tag::is_block_by_default(element.tag)
+        || tag::is_tabular_by_default(element.tag)
+        || tag::is_metadata_content(element.tag)
+        || element.tag == tag::li
 }
 
 /// Escape a character.

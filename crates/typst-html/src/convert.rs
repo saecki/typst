@@ -212,13 +212,39 @@ fn handle_html_elem(
         attrs.push(attr::role, role);
     }
 
+    // To replicate Typst box elements in HTML, some containers have to be
+    // rewritten as block-level elements, otherwise the generated HTML structure
+    // would be invalid.
+    let mut tag = elem.tag;
+    let mut par_div = false;
+    let mut box_div = false;
+    match elem.tag {
+        tag::p => {
+            if !children.iter().all(HtmlNode::is_phrasing_content) {
+                attrs.push(attr::class, "typst-par");
+                tag = tag::div;
+                par_div = true;
+            }
+        }
+        tag::span => {
+            if !children.iter().all(HtmlNode::is_phrasing_content) {
+                attrs.push(attr::class, "typst-span");
+                tag = tag::div;
+                box_div = true;
+            }
+        }
+        _ => (),
+    };
+
     converter.push(HtmlElement {
-        tag: elem.tag,
+        tag,
         attrs,
         children,
         parent: elem.parent,
         span: elem.span(),
         pre_span: false,
+        par_div,
+        box_div,
     });
 
     Ok(())
