@@ -366,7 +366,7 @@ impl HtmlElem<'_> {
         self.attr("aria-labelledby", tab_id)
     }
 
-    /// Set for `aria-role="tab"` when the tab is selected.
+    /// Set for `role="tab"` when the tab is selected.
     fn aria_selected(&mut self, selected: bool) -> &mut Self {
         self.attr("aria-selected", selected)
     }
