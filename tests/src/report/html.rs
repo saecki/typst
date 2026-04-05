@@ -334,6 +334,7 @@ impl HtmlElem<'_> {
         fn target(impl Display);
 
         fn src(impl Display);
+        fn alt(impl Display);
 
         fn value(impl Display);
         fn min(f32);
@@ -500,6 +501,7 @@ fn test_reports(body: &mut HtmlElem, reports: &[TestReport]) {
                                 {
                                     report_file_tab_panel(
                                         div,
+                                        test_report,
                                         report_file,
                                         test_idx,
                                         file_idx,
@@ -885,6 +887,7 @@ fn is_large_text_diff(diff: &FileDiff<Lines>) -> bool {
 
 fn report_file_tab_panel(
     parent: &mut HtmlElem,
+    test_report: &TestReport,
     report_file: &ReportFile,
     test_idx: usize,
     file_idx: usize,
@@ -897,13 +900,22 @@ fn report_file_tab_panel(
         .class("report-file")
         .with(|div| {
             for (diff_idx, diff) in report_file.diffs.iter().enumerate() {
-                file_diff_tabpanel(div, report_file, diff, test_idx, file_idx, diff_idx);
+                file_diff_tabpanel(
+                    div,
+                    test_report,
+                    report_file,
+                    diff,
+                    test_idx,
+                    file_idx,
+                    diff_idx,
+                );
             }
         });
 }
 
 fn file_diff_tabpanel(
     parent: &mut HtmlElem,
+    test_report: &TestReport,
     report_file: &ReportFile,
     diff: &Diff,
     test_idx: usize,
@@ -919,7 +931,9 @@ fn file_diff_tabpanel(
         .class("file-diff")
         .with(|div| match diff {
             Diff::Text(diff) => text_diff(div, diff),
-            Diff::Image(diff) => image_diff(div, report_file.output, diff, n),
+            Diff::Image(diff) => {
+                image_diff(div, &test_report.name, report_file.output, diff, n)
+            }
             Diff::Html(diff) => html_diff(div, diff),
         });
 }
@@ -1000,6 +1014,7 @@ fn diff_line(parent: &mut HtmlElem, kind: LineKind, line_nr: u32, spans: &[TextS
 
 fn image_diff(
     parent: &mut HtmlElem,
+    name: &str,
     output: TestOutput,
     diff: &FileDiff<Image>,
     n: usize,
@@ -1145,7 +1160,10 @@ fn image_diff(
 
         div.div().class("image-diff-wrapper").with(|div| {
             let image = |parent: &mut HtmlElem<'_>, data_url: &str| {
-                parent.img().src(data_url);
+                parent
+                    .img()
+                    .src(data_url)
+                    .alt(display!("The {output} image of `{name}` test"));
             };
 
             div.canvas().class("image-canvas").with(|canvas| {
