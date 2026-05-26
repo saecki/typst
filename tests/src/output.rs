@@ -15,7 +15,7 @@ use typst::layout::{Abs, Frame, FrameItem, Transform};
 use typst::model::ParbreakElem;
 use typst::text::SpaceElem;
 use typst::visualize::Color;
-use typst_bundle::{BundleOptions, VirtualFs};
+use typst_bundle::{ExternalOptions, VirtualFs};
 use typst_html::HtmlDocument;
 use typst_layout::PagedDocument;
 use typst_pdf::{PdfOptions, PdfStandard, PdfStandards};
@@ -332,7 +332,7 @@ fn generate_pdf(
     doc: &PagedDocument,
     standard: Option<PdfStandard>,
 ) -> SourceResult<Vec<u8>> {
-    let standards = PdfStandards::new(standard.as_slice()).unwrap();
+    let standards = PdfStandards::new(standard).unwrap();
     let options = PdfOptions { standards, ..Default::default() };
     typst_pdf::pdf(doc, &options)
 }
@@ -472,8 +472,8 @@ impl OutputType for Bundle {
     }
 
     fn make_live(test: &Test, doc: &Self::Doc) -> SourceResult<Self::Live> {
-        let standards = PdfStandards::new(test.attrs.pdf_standard.as_slice()).unwrap();
-        let options = BundleOptions {
+        let standards = PdfStandards::new(test.attrs.pdf_standard).unwrap();
+        let options = ExternalOptions {
             pixel_per_pt: 1.0,
             pdf: PdfOptions { standards, ..Default::default() },
         };

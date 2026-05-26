@@ -7,7 +7,7 @@ mod link;
 
 use crate::introspect::BundleIntrospector;
 
-pub use self::export_::{BundleOptions, VirtualFs, export};
+pub use self::export_::{ExternalOptions, VirtualFs, export};
 
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
@@ -27,7 +27,8 @@ use typst_library::introspection::{
     Introspector, Location, Locator, SplitLocator, Tag, TagElem,
 };
 use typst_library::model::{
-    AssetElem, Document, DocumentElem, DocumentFormat, DocumentInfo, PagedFormat,
+    AssetElem, Document, DocumentElem, DocumentFormat, DocumentInfo, HtmlDocumentOptions,
+    PagedFormat, PdfDocumentOptions, PngDocumentOptions,
 };
 use typst_library::routines::{Arenas, Pair, RealizationKind};
 use typst_library::{Feature, Library, World};
@@ -88,14 +89,14 @@ pub enum BundleDocument {
     /// A document in one of the paged formats.
     Paged(Box<PagedDocument>, PagedExtras),
     /// A document in the HTML format.
-    Html(Box<HtmlDocument>),
+    Html(Box<HtmlDocument>, HtmlDocumentOptions),
 }
 
 impl Document for BundleDocument {
     fn info(&self) -> &DocumentInfo {
         match self {
             BundleDocument::Paged(doc, _) => doc.info(),
-            BundleDocument::Html(doc) => doc.info(),
+            BundleDocument::Html(doc, _) => doc.info(),
         }
     }
 }
@@ -103,14 +104,21 @@ impl Document for BundleDocument {
 /// Extra data relevant for exporting a paged document in a bundle.
 #[derive(Debug, Clone, Hash)]
 pub struct PagedExtras {
-    /// The format to export in.
-    pub format: PagedFormat,
+    /// The format to export in and the corresponding document options.
+    pub format: PagedFormatOptions,
     /// Named anchors that should be exported, so that cross-document links can
     /// jump to a precise location.
     ///
     /// Not all export targets support this (e.g. PNG), in which case it can
     /// simply be ignored.
     pub anchors: Vec<(Location, EcoString)>,
+}
+
+#[derive(Debug, Clone, Hash)]
+pub enum PagedFormatOptions {
+    Pdf(PdfDocumentOptions),
+    Svg,
+    Png(PngDocumentOptions),
 }
 
 /// Produces a bundle from content.
@@ -293,6 +301,7 @@ fn compile_document<'a>(
     let format = document.determine_format(styles).at(document.span())?;
     let target = TargetElem::target.set(format.target()).wrap();
     let styles = styles.chain(&target);
+    let options = document.options.get_cloned(styles).unwrap_or_default();
     Ok(match format {
         DocumentFormat::Paged(format) => {
             let doc = typst_layout::layout_document_for_bundle(
@@ -311,10 +320,15 @@ fn compile_document<'a>(
                     hint: "documents exported to an image format only support a single page";
                 );
             }
+            let options = match format {
+                PagedFormat::Pdf => PagedFormatOptions::Pdf(options.pdf),
+                PagedFormat::Png => PagedFormatOptions::Png(options.png),
+                PagedFormat::Svg => PagedFormatOptions::Svg,
+            };
 
             BundleDocument::Paged(
                 Box::new(doc),
-                PagedExtras { format, anchors: Vec::new() },
+                PagedExtras { format: options, anchors: Vec::new() },
             )
         }
         DocumentFormat::Html => {
@@ -333,7 +347,7 @@ fn compile_document<'a>(
                 locator,
                 styles,
             )?;
-            BundleDocument::Html(Box::new(doc))
+            BundleDocument::Html(Box::new(doc), options.html)
         }
     })
 }

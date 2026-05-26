@@ -12,7 +12,7 @@ use typst::diag::{
 use typst::foundations::{Datetime, Smart};
 use typst::layout::PageRanges;
 use typst::syntax::Span;
-use typst_bundle::{Bundle, BundleOptions, VirtualFs};
+use typst_bundle::{Bundle, VirtualFs};
 use typst_html::HtmlDocument;
 use typst_kit::timer::Timer;
 use typst_layout::{Page, PagedDocument};
@@ -20,7 +20,7 @@ use typst_pdf::{PdfOptions, PdfStandards, Timestamp};
 
 use crate::args::{
     CompileArgs, CompileCommand, DepsFormat, DiagnosticFormat, Input, Output,
-    OutputFormat, PdfStandard, WatchCommand,
+    OutputFormat, PdfStandardArg, WatchCommand,
 };
 use crate::deps::write_deps;
 use crate::watch::Status;
@@ -65,15 +65,15 @@ pub struct CompileConfig {
     /// compilation.
     pub open: Option<Option<String>>,
     /// A list of standards the PDF should conform to.
-    pub pdf_standards: PdfStandards,
+    pub pdf_standards: Option<PdfStandards>,
     /// Whether to write PDF (accessibility) tags.
-    pub tagged: bool,
+    pub tagged: Option<bool>,
     /// A destination to write a list of dependencies to.
     pub deps: Option<Output>,
     /// The format to use for dependencies.
     pub deps_format: DepsFormat,
     /// The PPI (pixels per inch) to use for PNG export.
-    pub ppi: f32,
+    pub ppi: Option<f32>,
     /// The export cache for images, used for caching output files in `typst
     /// watch` sessions with images.
     pub export_cache: ExportCache,
@@ -139,7 +139,7 @@ impl CompileConfig {
             PageRanges::new(export_ranges.iter().map(|r| r.0.clone()).collect())
         });
 
-        let tagged = !args.no_pdf_tags && pages.is_none();
+        let tagged = (args.no_pdf_tags || pages.is_some()).then_some(false);
         if output_format == OutputFormat::Pdf && pages.is_some() && !args.no_pdf_tags {
             warnings.push(
                 HintedString::from("using --pages implies --no-pdf-tags").with_hints([
@@ -149,16 +149,18 @@ impl CompileConfig {
             );
         }
 
-        if !tagged {
-            const ACCESSIBLE: &[(PdfStandard, &str)] = &[
-                (PdfStandard::A_1a, "PDF/A-1a"),
-                (PdfStandard::A_2a, "PDF/A-2a"),
-                (PdfStandard::A_3a, "PDF/A-3a"),
-                (PdfStandard::UA_1, "PDF/UA-1"),
+        // TODO: A similar check should be present for PDFs exported in the
+        // bundle export.
+        if tagged == Some(false) {
+            const ACCESSIBLE: &[(typst::model::PdfStandard, &str)] = &[
+                (typst::model::PdfStandard::A_1a, "PDF/A-1a"),
+                (typst::model::PdfStandard::A_2a, "PDF/A-2a"),
+                (typst::model::PdfStandard::A_3a, "PDF/A-3a"),
+                (typst::model::PdfStandard::UA_1, "PDF/UA-1"),
             ];
 
             for (standard, name) in ACCESSIBLE {
-                if args.pdf_standard.contains(standard) {
+                if args.pdf_standard.contains(&PdfStandardArg(*standard)) {
                     if args.no_pdf_tags {
                         bail!("cannot disable PDF tags when exporting a {name} document");
                     } else {
@@ -171,9 +173,9 @@ impl CompileConfig {
             }
         }
 
-        let pdf_standards = PdfStandards::new(
-            &args.pdf_standard.iter().copied().map(Into::into).collect::<Vec<_>>(),
-        )?;
+        let pdf_standards = (!args.pdf_standard.is_empty()).then_some({
+            PdfStandards::new(args.pdf_standard.iter().copied().map(Into::into))?
+        });
 
         #[cfg(feature = "http-server")]
         let server = if let Some(command) = watch
@@ -380,7 +382,7 @@ fn export_pdf(document: &PagedDocument, config: &CompileConfig) -> SourceResult<
 }
 
 /// Creates options for PDF export.
-fn pdf_options(config: &CompileConfig) -> PdfOptions<'static> {
+fn pdf_options(config: &CompileConfig) -> ExternalPdfOptions {
     // If the timestamp is provided through the CLI, use UTC suffix,
     // else, use the current local time and timezone.
     let timestamp = match config.creation_timestamp {
@@ -396,18 +398,17 @@ fn pdf_options(config: &CompileConfig) -> PdfOptions<'static> {
         }
     };
 
-    PdfOptions {
-        ident: Smart::Auto,
+    ExternalPdfOptions {
         timestamp,
         page_ranges: config.pages.clone(),
-        standards: config.pdf_standards.clone(),
-        tagged: config.tagged,
+        standards: config.pdf_standards.clone().unwrap_or_default(),
+        tagged: config.tagged.unwrap_or(false),
     }
 }
 
 /// Export to a bundle, a collection of files in a directory.
 fn export_bundle(bundle: Bundle, config: &CompileConfig) -> SourceResult<Vec<Output>> {
-    let options = BundleOptions {
+    let options = ExternalOptions {
         pixel_per_pt: config.ppi / 72.0,
         pdf: pdf_options(config),
     };
@@ -701,28 +702,4 @@ pub fn print_diagnostics(
             DiagnosticFormat::Short => typst_kit::diagnostics::DiagnosticFormat::Short,
         },
     )
-}
-
-impl From<PdfStandard> for typst_pdf::PdfStandard {
-    fn from(standard: PdfStandard) -> Self {
-        match standard {
-            PdfStandard::V_1_4 => typst_pdf::PdfStandard::V_1_4,
-            PdfStandard::V_1_5 => typst_pdf::PdfStandard::V_1_5,
-            PdfStandard::V_1_6 => typst_pdf::PdfStandard::V_1_6,
-            PdfStandard::V_1_7 => typst_pdf::PdfStandard::V_1_7,
-            PdfStandard::V_2_0 => typst_pdf::PdfStandard::V_2_0,
-            PdfStandard::A_1b => typst_pdf::PdfStandard::A_1b,
-            PdfStandard::A_1a => typst_pdf::PdfStandard::A_1a,
-            PdfStandard::A_2b => typst_pdf::PdfStandard::A_2b,
-            PdfStandard::A_2u => typst_pdf::PdfStandard::A_2u,
-            PdfStandard::A_2a => typst_pdf::PdfStandard::A_2a,
-            PdfStandard::A_3b => typst_pdf::PdfStandard::A_3b,
-            PdfStandard::A_3u => typst_pdf::PdfStandard::A_3u,
-            PdfStandard::A_3a => typst_pdf::PdfStandard::A_3a,
-            PdfStandard::A_4 => typst_pdf::PdfStandard::A_4,
-            PdfStandard::A_4f => typst_pdf::PdfStandard::A_4f,
-            PdfStandard::A_4e => typst_pdf::PdfStandard::A_4e,
-            PdfStandard::UA_1 => typst_pdf::PdfStandard::UA_1,
-        }
-    }
 }

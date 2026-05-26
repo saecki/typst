@@ -9,6 +9,7 @@ use std::num::NonZeroUsize;
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::LazyLock;
 
 use clap::builder::styling::{AnsiColor, Effects};
 use clap::builder::{Styles, TypedValueParser, ValueParser};
@@ -16,6 +17,8 @@ use clap::{ArgAction, Args, ColorChoice, Parser, Subcommand, ValueEnum, ValueHin
 use clap_complete::Shell;
 use semver::Version;
 use serde::Serialize;
+use typst::foundations::{IntoValue, Reflect};
+use typst::model::PdfStandard;
 use typst_utils::display_possible_values;
 
 /// The character typically used to separate path components
@@ -319,6 +322,11 @@ pub struct CompileArgs {
     #[clap(flatten)]
     pub world: WorldArgs,
 
+    /// Whether to make the serialized output pretty.
+    /// This will increase the size of the generated file, but will produce a
+    /// human readable nicely formatted file if possible.
+    pub pretty: Option<bool>,
+
     /// Which pages to export. When unspecified, all pages are exported.
     ///
     /// Pages to export are separated by commas, and can be either simple page
@@ -335,7 +343,7 @@ pub struct CompileArgs {
     /// One (or multiple comma-separated) PDF standards that Typst will enforce
     /// conformance with.
     #[arg(long = "pdf-standard", value_delimiter = ',')]
-    pub pdf_standard: Vec<PdfStandard>,
+    pub pdf_standard: Vec<PdfStandardArg>,
 
     /// By default, even when not producing a `PDF/UA-1` document, a tagged PDF
     /// document is written to provide a baseline of accessibility. In some
@@ -345,8 +353,12 @@ pub struct CompileArgs {
     pub no_pdf_tags: bool,
 
     /// The PPI (pixels per inch) to use for PNG export.
-    #[arg(long = "ppi", default_value_t = 144.0)]
-    pub ppi: f32,
+    ///
+    /// [default: 144]
+    // TODO: Is there a cleaner way of providing a default value hint, without
+    // actually setting it?
+    #[arg(long = "ppi")]
+    pub ppi: Option<f32>,
 
     /// File path to which a Makefile with the current compilation's
     /// dependencies will be written.
@@ -644,63 +656,38 @@ pub enum Feature {
 display_possible_values!(Feature);
 
 /// A PDF standard that Typst can enforce conformance with.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, ValueEnum)]
-#[allow(non_camel_case_types)]
-pub enum PdfStandard {
-    /// PDF 1.4.
-    #[value(name = "1.4")]
-    V_1_4,
-    /// PDF 1.5.
-    #[value(name = "1.5")]
-    V_1_5,
-    /// PDF 1.6.
-    #[value(name = "1.6")]
-    V_1_6,
-    /// PDF 1.7.
-    #[value(name = "1.7")]
-    V_1_7,
-    /// PDF 2.0.
-    #[value(name = "2.0")]
-    V_2_0,
-    /// PDF/A-1b.
-    #[value(name = "a-1b")]
-    A_1b,
-    /// PDF/A-1a.
-    #[value(name = "a-1a")]
-    A_1a,
-    /// PDF/A-2b.
-    #[value(name = "a-2b")]
-    A_2b,
-    /// PDF/A-2u.
-    #[value(name = "a-2u")]
-    A_2u,
-    /// PDF/A-2a.
-    #[value(name = "a-2a")]
-    A_2a,
-    /// PDF/A-3b.
-    #[value(name = "a-3b")]
-    A_3b,
-    /// PDF/A-3u.
-    #[value(name = "a-3u")]
-    A_3u,
-    /// PDF/A-3a.
-    #[value(name = "a-3a")]
-    A_3a,
-    /// PDF/A-4.
-    #[value(name = "a-4")]
-    A_4,
-    /// PDF/A-4f.
-    #[value(name = "a-4f")]
-    A_4f,
-    /// PDF/A-4e.
-    #[value(name = "a-4e")]
-    A_4e,
-    /// PDF/UA-1.
-    #[value(name = "ua-1")]
-    UA_1,
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[repr(transparent)]
+pub struct PdfStandardArg(pub PdfStandard);
+
+impl ValueEnum for PdfStandardArg {
+    fn value_variants<'a>() -> &'a [Self] {
+        static VARIANTS: LazyLock<Vec<PdfStandardArg>> = LazyLock::new(|| {
+            // Get a list of variants using the derived `Cast` impl.
+            let infos = PdfStandard::input().union().unwrap();
+            let standards: Vec<PdfStandard> = infos
+                .into_iter()
+                .map(|info| info.value().unwrap().0.cast().unwrap())
+                .collect();
+            standards.into_iter().map(PdfStandardArg).collect()
+        });
+        &*VARIANTS
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        Some(clap::builder::PossibleValue::new(
+            self.0.into_value().cast::<String>().unwrap(),
+        ))
+    }
 }
 
-display_possible_values!(PdfStandard);
+impl From<PdfStandardArg> for PdfStandard {
+    fn from(value: PdfStandardArg) -> Self {
+        value.0.into()
+    }
+}
+
+display_possible_values!(PdfStandardArg);
 
 /// Output file format for query and info commands
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, ValueEnum)]

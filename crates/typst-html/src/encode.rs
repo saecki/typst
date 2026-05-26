@@ -13,9 +13,9 @@ use crate::{
 };
 
 /// Encodes an HTML document into a string.
-pub fn html(document: &HtmlDocument) -> SourceResult<String> {
+pub fn html(document: &HtmlDocument, pretty: bool) -> SourceResult<String> {
     let link_resolver = LateLinkResolver::new(None, document.introspector().as_ref());
-    let w = Writer::new(link_resolver.track(), true);
+    let w = Writer::new(link_resolver.track(), pretty);
     html_impl(w, document.root())
 }
 
@@ -26,8 +26,9 @@ pub fn html(document: &HtmlDocument) -> SourceResult<String> {
 pub fn html_in_bundle(
     root: &HtmlElement,
     link_resolver: Tracked<LateLinkResolver>,
+    pretty: bool,
 ) -> SourceResult<String> {
-    let w = Writer::new(link_resolver, true);
+    let w = Writer::new(link_resolver, pretty);
     html_impl(w, root)
 }
 

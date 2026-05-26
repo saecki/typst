@@ -7,8 +7,7 @@ use typst_utils::{NonZeroExt, Scalar, singleton};
 use crate::diag::{HintedStrResult, SourceResult, bail};
 use crate::engine::Engine;
 use crate::foundations::{
-    Args, Cast, CastInfo, Construct, Content, Dict, Fold, FromValue, IntoValue,
-    NativeElement, Reflect, Set, Smart, Value, cast, elem,
+    Args, Array, Cast, CastInfo, Construct, Content, Dict, Fold, FromValue, IntoValue, NativeElement, Reflect, Set, Smart, Value, cast, elem
 };
 use crate::layout::{
     Abs, Alignment, FlushElem, HAlignment, Length, OuterVAlignment, Ratio, Rel, Sides,
@@ -758,8 +757,14 @@ cast! {
 }
 
 /// A list of page ranges to be exported.
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct PageRanges(Vec<PageRange>);
+
+cast! {
+    PageRanges,
+    self => todo!("figure out a nice API"),
+    array: Array => todo!("figure out a nice API"),
+}
 
 /// A range of pages to export.
 ///

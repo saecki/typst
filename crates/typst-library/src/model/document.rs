@@ -1,12 +1,14 @@
 use ecow::EcoString;
 use typst_syntax::VirtualPath;
+use typst_utils::Scalar;
 
 use crate::diag::{HintedStrResult, bail, error};
 use crate::foundations::{
-    Array, BundlePath, Cast, Content, Datetime, OneOrMultiple, Packed, ShowFn, ShowSet,
-    Smart, StyleChain, Styles, Target, Value, cast, elem,
+    Array, BundlePath, Cast, Content, Datetime, Dict, Fold, OneOrMultiple, Packed,
+    ShowFn, ShowSet, Smart, StyleChain, Styles, Target, Value, cast, dict, elem,
 };
 use crate::introspection::Locatable;
+use crate::layout::PageRanges;
 use crate::text::{Locale, TextElem};
 
 /// Manages metadata and is used to add a document file to a bundle.
@@ -141,6 +143,9 @@ pub struct DocumentElem {
     ///
     /// This property is only supported in the @reference:bundle[bundle] target.
     pub format: Smart<DocumentFormat>,
+
+    // TODO: docs
+    pub options: Option<DocumentOptions>,
 
     /// The document's title. This is rendered as the title of the PDF viewer
     /// window or the browser tab of the page.
@@ -296,6 +301,219 @@ pub enum PagedFormat {
     Png,
     /// The vector graphics format of the web.
     Svg,
+}
+
+#[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
+pub struct DocumentOptions {
+    // TODO: Ideally we want to fold the scalar properties of the indivial fields.
+    pub html: HtmlDocumentOptions,
+    pub pdf: PdfDocumentOptions,
+    pub png: PngDocumentOptions,
+}
+
+cast! {
+    DocumentOptions,
+    self => Value::Dict(dict! {
+        "html" => self.html.into_value(),
+        "pdf" => self.pdf.into_value(),
+        "png" => self.png.into_value(),
+    }),
+    mut v: Dict => {
+        let html = v.take("html").ok().map(Value::cast).transpose()?.unwrap_or_default();
+        let pdf = v.take("pdf").ok().map(Value::cast).transpose()?.unwrap_or_default();
+        let png = v.take("png").ok().map(Value::cast).transpose()?.unwrap_or_default();
+        v.finish(&[])?;
+        Self { html, pdf, png }
+    },
+
+}
+
+#[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
+pub struct HtmlDocumentOptions {
+    kind: Option<HtmlDocumentKind>,
+    pretty: Option<bool>,
+}
+
+cast! {
+    HtmlDocumentOptions,
+    self => Value::Dict(dict! {
+        "kind" => self.kind.into_value(),
+        "pretty" => self.pretty.into_value(),
+    }),
+    mut v: Dict => {
+        let kind = v.take("kind").ok().map(Value::cast).transpose()?;
+        let pretty = v.take("pretty").ok().map(Value::cast).transpose()?;
+        v.finish(&[])?;
+        Self { kind, pretty }
+    },
+}
+
+impl Fold for HtmlDocumentOptions {
+    fn fold(self, outer: Self) -> Self {
+        Self {
+            kind: self.kind.or(outer.kind),
+            pretty: self.pretty.or(outer.pretty),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Cast)]
+pub enum HtmlDocumentKind {
+    /// A standalone HTML document.
+    Standalone,
+    /// A HTML document fragment.
+    Fragment,
+}
+
+/// Document settings for PDF export.
+#[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
+pub struct PdfDocumentOptions {
+    /// Specifies which ranges of pages should be exported in the PDF. When
+    /// `None`, all pages should be exported.
+    pub pages: Option<PageRanges>,
+    /// A list of PDF standards that Typst will enforce conformance with.
+    pub standard: Option<PdfStandards>,
+    /// By default, even when not producing a `PDF/UA-1` document, a tagged PDF
+    /// document is written to provide a baseline of accessibility. In some
+    /// circumstances, for example when trying to reduce the size of a document,
+    /// it can be desirable to disable tagged PDF.
+    pub tagged: Option<bool>,
+    /// Whether to make the serialized PDF output pretty.
+    /// This will increase the size of the generated file, but will produce a
+    /// human readable nicely formatted file.
+    pub pretty: Option<bool>,
+}
+
+cast! {
+    PdfDocumentOptions,
+    self => Value::Dict(dict! {
+        "standard" => self.standard.into_value(),
+        "tagged" => self.tagged.into_value(),
+        "pretty" => self.pretty.into_value(),
+    }),
+    mut v: Dict => {
+        let pages = v.take("pages").ok().map(Value::cast).transpose()?;
+        let standard = v.take("standard").ok().map(Value::cast).transpose()?;
+        let tagged = v.take("tagged").ok().map(Value::cast).transpose()?;
+        let pretty = v.take("pretty").ok().map(Value::cast).transpose()?;
+        v.finish(&[])?;
+        Self { pages, standard, tagged, pretty }
+    },
+
+}
+
+impl Fold for PdfDocumentOptions {
+    fn fold(self, outer: Self) -> Self {
+        Self {
+            pages: self.pages.or(outer.pages),
+            standard: self.standard.or(outer.standard),
+            tagged: self.tagged.or(outer.tagged),
+            pretty: self.pretty.or(outer.pretty),
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
+pub struct PdfStandards(Vec<PdfStandard>);
+
+impl IntoIterator for PdfStandards {
+    type Item = PdfStandard;
+
+    type IntoIter = std::vec::IntoIter<PdfStandard>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+cast! {
+    PdfStandards,
+    self => self.0.into_value(),
+    standard: PdfStandard => PdfStandards(vec![standard]),
+    values: Array => Self(values.into_iter().map(Value::cast).collect::<HintedStrResult<_>>()?),
+}
+
+/// A PDF standard that Typst can enforce conformance with.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Cast)]
+#[allow(non_camel_case_types)]
+pub enum PdfStandard {
+    /// PDF 1.4.
+    #[string("1.4")]
+    V_1_4,
+    /// PDF 1.5.
+    #[string("1.5")]
+    V_1_5,
+    /// PDF 1.6.
+    #[string("1.6")]
+    V_1_6,
+    /// PDF 1.7.
+    #[string("1.7")]
+    V_1_7,
+    /// PDF 2.0.
+    #[string("2.0")]
+    V_2_0,
+    /// PDF/A-1b.
+    #[string("a-1b")]
+    A_1b,
+    /// PDF/A-1a.
+    #[string("a-1a")]
+    A_1a,
+    /// PDF/A-2b.
+    #[string("a-2b")]
+    A_2b,
+    /// PDF/A-2u.
+    #[string("a-2u")]
+    A_2u,
+    /// PDF/A-2a.
+    #[string("a-2a")]
+    A_2a,
+    /// PDF/A-3b.
+    #[string("a-3b")]
+    A_3b,
+    /// PDF/A-3u.
+    #[string("a-3u")]
+    A_3u,
+    /// PDF/A-3a.
+    #[string("a-3a")]
+    A_3a,
+    /// PDF/A-4.
+    #[string("a-4")]
+    A_4,
+    /// PDF/A-4f.
+    #[string("a-4f")]
+    A_4f,
+    /// PDF/A-4e.
+    #[string("a-4e")]
+    A_4e,
+    /// PDF/UA-1.
+    #[string("ua-1")]
+    UA_1,
+}
+
+/// Document settings for PNG  export.
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct PngDocumentOptions {
+    // TODO: Add support for exporting multiple pages in PNG bundle export.
+    /// The number of pixels per point to render at when exporting a PNG.
+    pub pixel_per_pt: Option<Scalar>,
+}
+
+cast! {
+    PngDocumentOptions,
+    self => Value::Dict(dict!{}),
+    mut v: Dict => {
+        let pixel_per_pt = v.take("pixel-per-pt").ok().map(Value::cast).transpose()?;
+        v.finish(&[])?;
+        Self { pixel_per_pt }
+    }
+}
+
+impl Fold for PngDocumentOptions {
+    fn fold(self, outer: Self) -> Self {
+        Self {
+            pixel_per_pt: self.pixel_per_pt.or(outer.pixel_per_pt),
+        }
+    }
 }
 
 /// A list of authors.

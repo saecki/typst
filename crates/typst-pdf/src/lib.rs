@@ -112,7 +112,10 @@ pub struct PdfStandards {
 impl PdfStandards {
     /// Validates a list of PDF standards for compatibility and returns their
     /// encapsulated representation.
-    pub fn new(list: &[PdfStandard]) -> StrResult<Self> {
+    pub fn new<S>(list: impl IntoIterator<Item = S>) -> StrResult<Self>
+    where
+        S: Into<PdfStandard>,
+    {
         use krilla::configure::{Configuration, PdfVersion, Validator};
 
         let mut version: Option<PdfVersion> = None;
@@ -138,7 +141,7 @@ impl PdfStandards {
         };
 
         for standard in list {
-            match standard {
+            match standard.into() {
                 PdfStandard::V_1_4 => set_version(PdfVersion::Pdf14)?,
                 PdfStandard::V_1_5 => set_version(PdfVersion::Pdf15)?,
                 PdfStandard::V_1_6 => set_version(PdfVersion::Pdf16)?,
@@ -260,4 +263,28 @@ pub enum PdfStandard {
     /// PDF/UA-1.
     #[serde(rename = "ua-1")]
     UA_1,
+}
+
+impl From<typst_library::model::PdfStandard> for PdfStandard {
+    fn from(standard: typst_library::model::PdfStandard) -> Self {
+        match standard {
+            typst_library::model::PdfStandard::V_1_4 => Self::V_1_4,
+            typst_library::model::PdfStandard::V_1_5 => Self::V_1_5,
+            typst_library::model::PdfStandard::V_1_6 => Self::V_1_6,
+            typst_library::model::PdfStandard::V_1_7 => Self::V_1_7,
+            typst_library::model::PdfStandard::V_2_0 => Self::V_2_0,
+            typst_library::model::PdfStandard::A_1b => Self::A_1b,
+            typst_library::model::PdfStandard::A_1a => Self::A_1a,
+            typst_library::model::PdfStandard::A_2b => Self::A_2b,
+            typst_library::model::PdfStandard::A_2u => Self::A_2u,
+            typst_library::model::PdfStandard::A_2a => Self::A_2a,
+            typst_library::model::PdfStandard::A_3b => Self::A_3b,
+            typst_library::model::PdfStandard::A_3u => Self::A_3u,
+            typst_library::model::PdfStandard::A_3a => Self::A_3a,
+            typst_library::model::PdfStandard::A_4 => Self::A_4,
+            typst_library::model::PdfStandard::A_4f => Self::A_4f,
+            typst_library::model::PdfStandard::A_4e => Self::A_4e,
+            typst_library::model::PdfStandard::UA_1 => Self::UA_1,
+        }
+    }
 }

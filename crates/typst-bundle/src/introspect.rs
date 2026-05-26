@@ -240,7 +240,7 @@ impl BundleIntrospectorBuilder {
                     .discover_elements(doc.introspector().elements(), |_| pos);
                 ChildIntrospector::Paged(doc.introspector().clone())
             }
-            BundleDocument::Html(doc) => {
+            BundleDocument::Html(doc, _) => {
                 self.elements
                     .discover_elements(doc.introspector().elements(), |_| pos);
                 ChildIntrospector::Html(doc.introspector().clone())
