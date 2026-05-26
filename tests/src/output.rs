@@ -244,9 +244,9 @@ impl OutputType for Pdf {
         // crashes, since there are quite a few different code paths involved.
         // If another standard is specified in the test, run that as well.
         let default_pdf = generate_pdf(doc, None);
-        let ua1_pdf = generate_pdf(doc, Some(PdfStandard::Ua_1));
+        let ua1_pdf = generate_pdf(doc, Some(PdfStandard::UA_1));
         match test.attrs.pdf_standard {
-            Some(PdfStandard::Ua_1) => ua1_pdf,
+            Some(PdfStandard::UA_1) => ua1_pdf,
             Some(other) => generate_pdf(doc, Some(other)),
             None => default_pdf,
         }

@@ -722,7 +722,7 @@ impl From<PdfStandard> for typst_pdf::PdfStandard {
             PdfStandard::A_4 => typst_pdf::PdfStandard::A_4,
             PdfStandard::A_4f => typst_pdf::PdfStandard::A_4f,
             PdfStandard::A_4e => typst_pdf::PdfStandard::A_4e,
-            PdfStandard::UA_1 => typst_pdf::PdfStandard::Ua_1,
+            PdfStandard::UA_1 => typst_pdf::PdfStandard::UA_1,
         }
     }
 }

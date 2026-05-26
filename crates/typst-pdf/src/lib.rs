@@ -155,7 +155,7 @@ impl PdfStandards {
                 PdfStandard::A_4 => set_validator(Validator::A4)?,
                 PdfStandard::A_4f => set_validator(Validator::A4F)?,
                 PdfStandard::A_4e => set_validator(Validator::A4E)?,
-                PdfStandard::Ua_1 => set_validator(Validator::UA1)?,
+                PdfStandard::UA_1 => set_validator(Validator::UA1)?,
             }
         }
 
@@ -259,5 +259,5 @@ pub enum PdfStandard {
     A_4e,
     /// PDF/UA-1.
     #[serde(rename = "ua-1")]
-    Ua_1,
+    UA_1,
 }
