@@ -23,11 +23,11 @@ use ecow::{EcoString, eco_format};
 use krilla::configure::Validator;
 use serde::{Deserialize, Serialize};
 use typst_layout::PagedDocument;
-use typst_library::diag::{SourceResult, StrResult, bail};
+use typst_library::diag::{HintedStrResult, SourceResult, StrResult, bail};
 use typst_library::foundations::Smart;
 use typst_library::introspection::Location;
 use typst_library::layout::PageRanges;
-use typst_library::model::LateLinkResolver;
+use typst_library::model::{LateLinkResolver, PdfDocumentOptions};
 
 /// Export a document into a PDF file.
 ///
@@ -84,6 +84,23 @@ pub struct PdfOptions<'a> {
 }
 
 impl PdfOptions<'_> {
+    pub fn new(
+        options: &PdfDocumentOptions,
+        timestamp: Option<Timestamp>,
+    ) -> HintedStrResult<Self> {
+        let standards = options.standard.map(PdfStandards::new).transpose()?;
+
+        // TODO: Add check similar to the CLI.
+
+        Ok(Self {
+            ident: Smart::Auto,
+            timestamp,
+            page_ranges: options.pages,
+            standards: standards.unwrap_or_default(),
+            tagged: options.tagged.unwrap_or(true),
+        })
+    }
+
     /// Whether the current export mode is PDF/UA-1, and in the future maybe
     /// PDF/UA-2.
     pub(crate) fn is_pdf_ua(&self) -> bool {
@@ -205,6 +222,8 @@ impl Hash for PdfStandards {
     }
 }
 
+// TODO: implement serialize for typst_library::model::PdfStandard and remove
+// this type.
 /// A PDF standard that Typst can enforce conformance with.
 ///
 /// Support for more standards is planned.

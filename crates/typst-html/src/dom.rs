@@ -9,7 +9,7 @@ use typst_library::foundations::{
 };
 use typst_library::introspection::{Introspector, Location, Tag};
 use typst_library::layout::{Abs, Frame, Point};
-use typst_library::model::{Document, DocumentInfo};
+use typst_library::model::{Document, DocumentInfo, HtmlDocumentOptions};
 use typst_library::text::TextElem;
 use typst_syntax::Span;
 use typst_utils::{PicoStr, ResolvedPicoStr};
@@ -26,16 +26,26 @@ use crate::{HtmlIntrospector, charsets, css};
 pub struct HtmlDocument {
     output: HtmlOutput,
     info: DocumentInfo,
+    options: HtmlDocumentOptions,
     introspector: Arc<HtmlIntrospector>,
 }
 
 impl HtmlDocument {
-    /// Creates a new paged document from its parts.
+    /// Creates a new HTML document from its parts.
     ///
     /// Internally builds the introspector.
-    pub fn new(output: HtmlOutput, info: DocumentInfo) -> Self {
+    pub fn new(
+        output: HtmlOutput,
+        info: DocumentInfo,
+        options: HtmlDocumentOptions,
+    ) -> Self {
         let introspector = HtmlIntrospector::new(output.nodes());
-        Self { output, info, introspector: Arc::new(introspector) }
+        Self {
+            output,
+            info,
+            options,
+            introspector: Arc::new(introspector),
+        }
     }
 
     /// The document's root HTML element.

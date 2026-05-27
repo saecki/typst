@@ -7,7 +7,9 @@ use typst_library::engine::Engine;
 use typst_library::foundations::{Content, Output, Smart, StyleChain, Target};
 use typst_library::introspection::Introspector;
 use typst_library::layout::{Abs, Frame, Sides};
-use typst_library::model::{Document, DocumentInfo, Numbering};
+use typst_library::model::{
+    Document, DocumentInfo, Numbering, PdfDocumentOptions, PngDocumentOptions,
+};
 use typst_library::visualize::{Color, Paint};
 
 use crate::PagedIntrospector;
@@ -17,7 +19,15 @@ use crate::PagedIntrospector;
 pub struct PagedDocument {
     pages: EcoVec<Page>,
     info: DocumentInfo,
+    options: PagedFormatOptions,
     introspector: Arc<PagedIntrospector>,
+}
+
+#[derive(Debug, Clone, Hash)]
+pub enum PagedFormatOptions {
+    Pdf(PdfDocumentOptions),
+    Svg,
+    Png(PngDocumentOptions),
 }
 
 impl PagedDocument {
@@ -26,7 +36,7 @@ impl PagedDocument {
     /// Internally builds the introspector.
     pub fn new(pages: EcoVec<Page>, info: DocumentInfo) -> Self {
         let introspector = PagedIntrospector::new(&pages);
-        Self { pages, info, introspector: Arc::new(introspector) }
+        Self { pages, info, options, introspector: Arc::new(introspector) }
     }
 
     /// The document's finished pages.

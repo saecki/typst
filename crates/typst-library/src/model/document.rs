@@ -1,11 +1,12 @@
 use ecow::EcoString;
+use serde::Serialize;
 use typst_syntax::VirtualPath;
 use typst_utils::Scalar;
 
 use crate::diag::{HintedStrResult, bail, error};
 use crate::foundations::{
-    Array, BundlePath, Cast, Content, Datetime, Dict, Fold, OneOrMultiple, Packed,
-    ShowFn, ShowSet, Smart, StyleChain, Styles, Target, Value, cast, dict, elem,
+    Array, BundlePath, Cast, Content, Datetime, Dict, Fold, IntoValue, OneOrMultiple,
+    Packed, ShowFn, ShowSet, Smart, StyleChain, Styles, Target, Value, cast, dict, elem,
 };
 use crate::introspection::Locatable;
 use crate::layout::PageRanges;
@@ -330,8 +331,8 @@ cast! {
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
 pub struct HtmlDocumentOptions {
-    kind: Option<HtmlDocumentKind>,
-    pretty: Option<bool>,
+    pub kind: Option<HtmlDocumentKind>,
+    pub pretty: Option<bool>,
 }
 
 cast! {
@@ -378,26 +379,21 @@ pub struct PdfDocumentOptions {
     /// circumstances, for example when trying to reduce the size of a document,
     /// it can be desirable to disable tagged PDF.
     pub tagged: Option<bool>,
-    /// Whether to make the serialized PDF output pretty.
-    /// This will increase the size of the generated file, but will produce a
-    /// human readable nicely formatted file.
-    pub pretty: Option<bool>,
 }
 
 cast! {
     PdfDocumentOptions,
     self => Value::Dict(dict! {
+        "pages" => self.pages.into_value(),
         "standard" => self.standard.into_value(),
         "tagged" => self.tagged.into_value(),
-        "pretty" => self.pretty.into_value(),
     }),
     mut v: Dict => {
         let pages = v.take("pages").ok().map(Value::cast).transpose()?;
         let standard = v.take("standard").ok().map(Value::cast).transpose()?;
         let tagged = v.take("tagged").ok().map(Value::cast).transpose()?;
-        let pretty = v.take("pretty").ok().map(Value::cast).transpose()?;
         v.finish(&[])?;
-        Self { pages, standard, tagged, pretty }
+        Self { pages, standard, tagged }
     },
 
 }
@@ -408,7 +404,6 @@ impl Fold for PdfDocumentOptions {
             pages: self.pages.or(outer.pages),
             standard: self.standard.or(outer.standard),
             tagged: self.tagged.or(outer.tagged),
-            pretty: self.pretty.or(outer.pretty),
         }
     }
 }
@@ -434,7 +429,7 @@ cast! {
 }
 
 /// A PDF standard that Typst can enforce conformance with.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Cast)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Cast, Serialize)]
 #[allow(non_camel_case_types)]
 pub enum PdfStandard {
     /// PDF 1.4.

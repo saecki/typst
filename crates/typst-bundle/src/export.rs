@@ -8,7 +8,7 @@ use typst_layout::PagedDocument;
 use typst_library::diag::{At, ParallelCollectCombinedResult, SourceResult, StrResult};
 use typst_library::foundations::{Bytes, Fold, Smart};
 use typst_library::introspection::Location;
-use typst_library::model::{LateLinkResolver, PagedFormatOptions};
+use typst_library::model::{LateLinkResolver, PdfDocumentOptions};
 use typst_pdf::{PdfOptions, Timestamp};
 use typst_render::RenderOptions;
 use typst_syntax::{Span, VirtualPath};
@@ -54,49 +54,33 @@ pub struct ExternalPdfOptions {
     pub timestamp: Option<Timestamp>,
 }
 
-impl ExternalPdfOptions {
-    pub fn export(self) -> StrResult<PdfOptions<'static>> {
-        let standards =
-            self.options.standard.map(typst_pdf::PdfStandards::new).transpose()?;
-        Ok(PdfOptions {
-            ident: Smart::Auto,
-            timestamp: self.timestamp,
-            page_ranges: self.options.pages,
-            standards: standards.unwrap_or_default(),
-            tagged: self.options.tagged.unwrap_or(true),
-        })
-    }
-}
-
 /// Exports a single document.
 fn export_document(
     doc: &BundleDocument,
-    ext_opts: &ExternalOptions,
+    ext: &ExternalOptions,
     link_resolver: Tracked<LateLinkResolver>,
 ) -> SourceResult<Bytes> {
     match doc {
-        BundleDocument::Paged(doc, extras) => match extras.format {
-            PagedFormatOptions::Pdf(doc_opts) => {
-                // TODO: Store span of document eleme somewhere.
-                let options = ExternalPdfOptions {
-                    options: ext_opts.pdf.options.fold(doc_opts),
-                    ..ext_opts.pdf
-                }
-                .export()
-                .at(Span::detached())?;
-                export_pdf(doc, &options, &extras.anchors, link_resolver)
+        BundleDocument::Paged(doc, extras) => match &extras.format {
+            PagedFormatOptions::Pdf(options) => {
+                // TODO: Store span of document element somewhere.
+                let options =
+                    PdfOptions::new(options, ext.pdf.timestamp).at(Span::detached())?;
+                export_pdf(doc, &options, anchors, link_resolver)
             }
-            PagedFormatOptions::Png(doc_opts) => {
-                let options = ext_opts.png.fold(doc_opts);
+            PagedFormatOptions::Png(options) => {
+                let options = ext.png.fold(options);
                 // This is the default value of: 144ppi == 2ppt
                 let pixel_per_pt = options.pixel_per_pt.unwrap_or(Scalar::new(2.0));
                 export_png(doc, pixel_per_pt)
             }
-            PagedFormatOptions::Svg(doc_opts) => {
-                export_svg(doc, &doc_opts.svg, &extras.anchors, link_resolver)
-            }
+            PagedFormatOptions::Svg => export_svg(doc, &extras.anchors, link_resolver),
         },
-        BundleDocument::Html(doc, doc_opts) => export_html(doc.root(), link_resolver),
+        BundleDocument::Html(doc, options) => {
+            // TODO: The defaults should be stored somewhere else
+            let pretty = options.pretty.unwrap_or(false);
+            export_html(doc.root(), options.pretty, link_resolver),
+        }
     }
 }
 
@@ -132,7 +116,6 @@ fn export_png(doc: &PagedDocument, pixel_per_pt: Scalar) -> SourceResult<Bytes> 
 #[typst_macros::time(name = "export svg")]
 fn export_svg(
     doc: &PagedDocument,
-    options: &SvgDocumentOptions,
     anchors: &[(Location, EcoString)],
     link_resolver: Tracked<LateLinkResolver>,
 ) -> SourceResult<Bytes> {

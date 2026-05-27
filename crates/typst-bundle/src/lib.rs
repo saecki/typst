@@ -114,13 +114,6 @@ pub struct PagedExtras {
     pub anchors: Vec<(Location, EcoString)>,
 }
 
-#[derive(Debug, Clone, Hash)]
-pub enum PagedFormatOptions {
-    Pdf(PdfDocumentOptions),
-    Svg,
-    Png(PngDocumentOptions),
-}
-
 /// Produces a bundle from content.
 ///
 /// This first performs root-level bundle realization and then compiles the
