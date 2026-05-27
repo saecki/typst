@@ -5,16 +5,16 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rustc_hash::FxBuildHasher;
 use typst_html::HtmlElement;
 use typst_layout::PagedDocument;
-use typst_library::diag::{At, ParallelCollectCombinedResult, SourceResult, StrResult};
-use typst_library::foundations::{Bytes, Fold, Smart};
+use typst_library::diag::{At, ParallelCollectCombinedResult, SourceResult};
+use typst_library::foundations::{Bytes, Fold};
 use typst_library::introspection::Location;
-use typst_library::model::{LateLinkResolver, PdfDocumentOptions};
+use typst_library::model::{LateLinkResolver, PagedFormat};
 use typst_pdf::{PdfOptions, Timestamp};
 use typst_render::RenderOptions;
 use typst_syntax::{Span, VirtualPath};
 use typst_utils::Scalar;
 
-use crate::{Bundle, BundleDocument, BundleFile, PagedFormatOptions};
+use crate::{Bundle, BundleDocument, BundleFile};
 
 /// A raw mapping from paths to bytes.
 pub type VirtualFs = IndexMap<VirtualPath, Bytes, FxBuildHasher>;
@@ -62,19 +62,19 @@ fn export_document(
 ) -> SourceResult<Bytes> {
     match doc {
         BundleDocument::Paged(doc, extras) => match &extras.format {
-            PagedFormatOptions::Pdf(options) => {
+            PagedFormat::Pdf => {
                 // TODO: Store span of document element somewhere.
                 let options =
                     PdfOptions::new(options, ext.pdf.timestamp).at(Span::detached())?;
                 export_pdf(doc, &options, anchors, link_resolver)
             }
-            PagedFormatOptions::Png(options) => {
+            PagedFormat::Png => {
                 let options = ext.png.fold(options);
                 // This is the default value of: 144ppi == 2ppt
                 let pixel_per_pt = options.pixel_per_pt.unwrap_or(Scalar::new(2.0));
                 export_png(doc, pixel_per_pt)
             }
-            PagedFormatOptions::Svg => export_svg(doc, &extras.anchors, link_resolver),
+            PagedFormat::Svg => export_svg(doc, &extras.anchors, link_resolver),
         },
         BundleDocument::Html(doc, options) => {
             // TODO: The defaults should be stored somewhere else

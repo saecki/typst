@@ -8,7 +8,8 @@ use typst_library::foundations::{Content, Output, Smart, StyleChain, Target};
 use typst_library::introspection::Introspector;
 use typst_library::layout::{Abs, Frame, Sides};
 use typst_library::model::{
-    Document, DocumentInfo, Numbering, PdfDocumentOptions, PngDocumentOptions,
+    Document, DocumentInfo, DocumentOptions, Numbering, PdfDocumentOptions,
+    PngDocumentOptions,
 };
 use typst_library::visualize::{Color, Paint};
 
@@ -19,24 +20,26 @@ use crate::PagedIntrospector;
 pub struct PagedDocument {
     pages: EcoVec<Page>,
     info: DocumentInfo,
-    options: PagedFormatOptions,
+    options: PagedDocumentOptions,
     introspector: Arc<PagedIntrospector>,
-}
-
-#[derive(Debug, Clone, Hash)]
-pub enum PagedFormatOptions {
-    Pdf(PdfDocumentOptions),
-    Svg,
-    Png(PngDocumentOptions),
 }
 
 impl PagedDocument {
     /// Creates a new paged document from its parts.
     ///
     /// Internally builds the introspector.
-    pub fn new(pages: EcoVec<Page>, info: DocumentInfo) -> Self {
+    pub fn new(
+        pages: EcoVec<Page>,
+        info: DocumentInfo,
+        options: PagedDocumentOptions,
+    ) -> Self {
         let introspector = PagedIntrospector::new(&pages);
-        Self { pages, info, options, introspector: Arc::new(introspector) }
+        Self {
+            pages,
+            info,
+            options,
+            introspector: Arc::new(introspector),
+        }
     }
 
     /// The document's finished pages.
@@ -48,6 +51,12 @@ impl PagedDocument {
     pub fn info_mut(&mut self) -> &mut DocumentInfo {
         &mut self.info
     }
+
+    /// Options set
+    pub fn options(&self) -> &PagedDocumentOptions {
+        &self.options
+    }
+
 
     /// Provides the ability to execute queries on the document.
     pub fn introspector(&self) -> &Arc<PagedIntrospector> {
@@ -85,6 +94,19 @@ impl Output for PagedDocument {
         styles: StyleChain,
     ) -> SourceResult<Self> {
         crate::layout_document(engine, content, styles)
+    }
+}
+
+#[derive(Debug, Default, Clone, Hash)]
+pub struct PagedDocumentOptions {
+    pub pdf: PdfDocumentOptions,
+    pub png: PngDocumentOptions,
+}
+
+impl From<DocumentOptions> for PagedDocumentOptions {
+    fn from(value: DocumentOptions) -> Self {
+        let DocumentOptions { pdf, png, .. } = value;
+        Self { pdf, png }
     }
 }
 

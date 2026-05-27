@@ -88,14 +88,16 @@ impl PdfOptions<'_> {
         options: &PdfDocumentOptions,
         timestamp: Option<Timestamp>,
     ) -> HintedStrResult<Self> {
-        let standards = options.standard.map(PdfStandards::new).transpose()?;
+        let standards = (options.standard.as_ref())
+            .map(|standards| PdfStandards::new(standards.iter()))
+            .transpose()?;
 
         // TODO: Add check similar to the CLI.
 
         Ok(Self {
             ident: Smart::Auto,
             timestamp,
-            page_ranges: options.pages,
+            page_ranges: options.pages.clone(),
             standards: standards.unwrap_or_default(),
             tagged: options.tagged.unwrap_or(true),
         })

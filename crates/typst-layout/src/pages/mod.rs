@@ -13,7 +13,7 @@ use typst_library::introspection::{
     Introspector, Locator, LocatorLink, ManualPageCounter, SplitLocator, TagElem,
 };
 use typst_library::layout::{FrameItem, Point};
-use typst_library::model::DocumentInfo;
+use typst_library::model::{DocumentInfo, DocumentOptions};
 use typst_library::routines::{Arenas, Pair, RealizationKind};
 use typst_library::{Library, World};
 use typst_utils::{LazyHash, Protected};
@@ -21,6 +21,7 @@ use typst_utils::{LazyHash, Protected};
 use self::collect::{Item, collect};
 use self::finalize::finalize;
 use self::run::{LayoutedPage, layout_blank_page, layout_page_run};
+use crate::document::PagedDocumentOptions;
 use crate::{Page, PagedDocument};
 
 /// Layout content into a document.
@@ -156,9 +157,11 @@ fn layout_document_common(
     let mut info = DocumentInfo::default();
     info.populate(styles);
     info.populate_locale(styles);
+    let mut options = DocumentOptions::default();
+    options.populate(styles);
 
     let mut children = (engine.library.routines.realize)(
-        RealizationKind::Document { info: &mut info },
+        RealizationKind::Document { info: &mut info, options: &mut options },
         &mut engine,
         &mut locator,
         &arenas,
@@ -168,7 +171,7 @@ fn layout_document_common(
 
     let pages = layout_pages(&mut engine, &mut children, &mut locator, styles)?;
 
-    Ok(PagedDocument::new(pages, info))
+    Ok(PagedDocument::new(pages, info, options.into()))
 }
 
 /// Layouts the document's pages.

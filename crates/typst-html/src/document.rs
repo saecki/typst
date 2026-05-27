@@ -7,7 +7,9 @@ use typst_library::introspection::{
     Introspector, Locator, LocatorLink, QueryIntrospection,
 };
 use typst_library::math::EquationElem;
-use typst_library::model::{DocumentInfo, FootnoteContainer, FootnoteMarker};
+use typst_library::model::{
+    DocumentInfo, DocumentOptions, FootnoteContainer, FootnoteMarker,
+};
 use typst_library::routines::{Arenas, RealizationKind};
 use typst_library::{Library, World};
 use typst_syntax::Span;
@@ -159,9 +161,11 @@ fn html_document_common(
     let mut info = DocumentInfo::default();
     info.populate(styles);
     info.populate_locale(styles);
+    let mut options = DocumentOptions::default();
+    options.populate(styles);
 
     let children = (engine.library.routines.realize)(
-        RealizationKind::Document { info: &mut info },
+        RealizationKind::Document { info: &mut info, options: &mut options },
         &mut engine,
         &mut locator,
         &arenas,
@@ -214,7 +218,7 @@ fn html_document_common(
         );
     }
 
-    Ok(HtmlDocument::new(output, info))
+    Ok(HtmlDocument::new(output, info, options.html))
 }
 
 /// The introspectible output of HTML compilation.

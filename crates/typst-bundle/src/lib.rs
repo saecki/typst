@@ -89,14 +89,14 @@ pub enum BundleDocument {
     /// A document in one of the paged formats.
     Paged(Box<PagedDocument>, PagedExtras),
     /// A document in the HTML format.
-    Html(Box<HtmlDocument>, HtmlDocumentOptions),
+    Html(Box<HtmlDocument>),
 }
 
 impl Document for BundleDocument {
     fn info(&self) -> &DocumentInfo {
         match self {
             BundleDocument::Paged(doc, _) => doc.info(),
-            BundleDocument::Html(doc, _) => doc.info(),
+            BundleDocument::Html(doc) => doc.info(),
         }
     }
 }
@@ -105,7 +105,7 @@ impl Document for BundleDocument {
 #[derive(Debug, Clone, Hash)]
 pub struct PagedExtras {
     /// The format to export in and the corresponding document options.
-    pub format: PagedFormatOptions,
+    pub format: PagedFormat,
     /// Named anchors that should be exported, so that cross-document links can
     /// jump to a precise location.
     ///
@@ -294,7 +294,6 @@ fn compile_document<'a>(
     let format = document.determine_format(styles).at(document.span())?;
     let target = TargetElem::target.set(format.target()).wrap();
     let styles = styles.chain(&target);
-    let options = document.options.get_cloned(styles).unwrap_or_default();
     Ok(match format {
         DocumentFormat::Paged(format) => {
             let doc = typst_layout::layout_document_for_bundle(
@@ -313,15 +312,10 @@ fn compile_document<'a>(
                     hint: "documents exported to an image format only support a single page";
                 );
             }
-            let options = match format {
-                PagedFormat::Pdf => PagedFormatOptions::Pdf(options.pdf),
-                PagedFormat::Png => PagedFormatOptions::Png(options.png),
-                PagedFormat::Svg => PagedFormatOptions::Svg,
-            };
 
             BundleDocument::Paged(
                 Box::new(doc),
-                PagedExtras { format: options, anchors: Vec::new() },
+                PagedExtras { format, anchors: Vec::new() },
             )
         }
         DocumentFormat::Html => {
@@ -340,7 +334,7 @@ fn compile_document<'a>(
                 locator,
                 styles,
             )?;
-            BundleDocument::Html(Box::new(doc), options.html)
+            BundleDocument::Html(Box::new(doc))
         }
     })
 }

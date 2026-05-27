@@ -5,8 +5,8 @@ use typst_utils::Scalar;
 
 use crate::diag::{HintedStrResult, bail, error};
 use crate::foundations::{
-    Array, BundlePath, Cast, Content, Datetime, Dict, Fold, IntoValue, OneOrMultiple,
-    Packed, ShowFn, ShowSet, Smart, StyleChain, Styles, Target, Value, cast, dict, elem,
+    Array, BundlePath, Cast, Content, Datetime, Dict, Fold, OneOrMultiple, Packed,
+    ShowFn, ShowSet, Smart, StyleChain, Styles, Target, Value, cast, dict, elem,
 };
 use crate::introspection::Locatable;
 use crate::layout::PageRanges;
@@ -329,6 +329,29 @@ cast! {
 
 }
 
+impl DocumentOptions {
+    /// Populate the document options from the given styles.
+    ///
+    /// Document set rules are a bit special, so we need to do this manually.
+    pub fn populate(&mut self, styles: StyleChain) {
+        if let Some(options) = styles.get_cloned(DocumentElem::options) {
+            // TODO: We probably do need `Option<Option<_>>` for the properties,
+            // so they can be unset.
+            *self = options.fold(self.clone());
+        }
+    }
+}
+
+impl Fold for DocumentOptions {
+    fn fold(self, outer: Self) -> Self {
+        Self {
+            html: self.html.fold(outer.html),
+            pdf: self.pdf.fold(outer.pdf),
+            png: self.png.fold(outer.png),
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
 pub struct HtmlDocumentOptions {
     pub kind: Option<HtmlDocumentKind>,
@@ -410,6 +433,13 @@ impl Fold for PdfDocumentOptions {
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
 pub struct PdfStandards(Vec<PdfStandard>);
+
+impl PdfStandards {
+    /// Returns an iterator over the standards.
+    pub fn iter(&self) -> impl Iterator<Item = PdfStandard> {
+        self.0.iter().copied()
+    }
+}
 
 impl IntoIterator for PdfStandards {
     type Item = PdfStandard;
