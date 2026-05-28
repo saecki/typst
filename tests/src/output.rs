@@ -18,7 +18,7 @@ use typst::visualize::Color;
 use typst_bundle::{ExternalOptions, VirtualFs};
 use typst_html::HtmlDocument;
 use typst_layout::PagedDocument;
-use typst_pdf::{PdfOptions, PdfStandard, PdfStandards};
+use typst_pdf::{PdfConfig, PdfStandard, PdfStandards};
 use typst_syntax::Span;
 
 use crate::collect::{Test, TestOutput};
@@ -333,7 +333,7 @@ fn generate_pdf(
     standard: Option<PdfStandard>,
 ) -> SourceResult<Vec<u8>> {
     let standards = PdfStandards::new(standard).unwrap();
-    let options = PdfOptions { standards, ..Default::default() };
+    let options = PdfConfig { standards, ..Default::default() };
     typst_pdf::pdf(doc, &options)
 }
 
@@ -475,7 +475,7 @@ impl OutputType for Bundle {
         let standards = PdfStandards::new(test.attrs.pdf_standard).unwrap();
         let options = ExternalOptions {
             pixel_per_pt: 1.0,
-            pdf: PdfOptions { standards, ..Default::default() },
+            pdf: PdfConfig { standards, ..Default::default() },
         };
         typst_bundle::export(doc, &options)
     }

@@ -11,12 +11,13 @@ use typst::diag::{
 };
 use typst::foundations::{Datetime, Smart};
 use typst::layout::PageRanges;
+use typst::model::PdfStandards;
 use typst::syntax::Span;
-use typst_bundle::{Bundle, VirtualFs};
+use typst_bundle::{Bundle, ExternalOptions, VirtualFs};
 use typst_html::HtmlDocument;
 use typst_kit::timer::Timer;
 use typst_layout::{Page, PagedDocument};
-use typst_pdf::{PdfOptions, PdfStandards, Timestamp};
+use typst_pdf::{PdfOptions, Timestamp};
 
 use crate::args::{
     CompileArgs, CompileCommand, DepsFormat, DiagnosticFormat, Input, Output,
@@ -55,6 +56,8 @@ pub struct CompileConfig {
     pub output: Output,
     /// The format of the output file.
     pub output_format: OutputFormat,
+    /// Whether the serialized output should be pretty.
+    pub pretty: Option<bool>,
     /// Which pages to export.
     pub pages: Option<PageRanges>,
     /// The document's creation date formatted as a UNIX timestamp, with UTC suffix.
@@ -173,9 +176,9 @@ impl CompileConfig {
             }
         }
 
-        let pdf_standards = (!args.pdf_standard.is_empty()).then_some({
-            PdfStandards::new(args.pdf_standard.iter().copied().map(Into::into))?
-        });
+        let pdf_standards = (!args.pdf_standard.is_empty()).then_some(
+            PdfStandards::from_iter(args.pdf_standard.iter().copied().map(Into::into)),
+        );
 
         #[cfg(feature = "http-server")]
         let server = if let Some(command) = watch
@@ -223,6 +226,7 @@ impl CompileConfig {
             input,
             output,
             output_format,
+            pretty: args.pretty,
             pages,
             pdf_standards,
             tagged,
@@ -382,7 +386,7 @@ fn export_pdf(document: &PagedDocument, config: &CompileConfig) -> SourceResult<
 }
 
 /// Creates options for PDF export.
-fn pdf_options(config: &CompileConfig) -> ExternalPdfOptions {
+fn pdf_options(config: &CompileConfig) -> PdfOptions<'static> {
     // If the timestamp is provided through the CLI, use UTC suffix,
     // else, use the current local time and timezone.
     let timestamp = match config.creation_timestamp {
@@ -398,20 +402,12 @@ fn pdf_options(config: &CompileConfig) -> ExternalPdfOptions {
         }
     };
 
-    ExternalPdfOptions {
-        timestamp,
-        page_ranges: config.pages.clone(),
-        standards: config.pdf_standards.clone().unwrap_or_default(),
-        tagged: config.tagged.unwrap_or(false),
-    }
+    PdfOptions { ident: Smart::Auto, timestamp }
 }
 
 /// Export to a bundle, a collection of files in a directory.
 fn export_bundle(bundle: Bundle, config: &CompileConfig) -> SourceResult<Vec<Output>> {
-    let options = ExternalOptions {
-        pixel_per_pt: config.ppi / 72.0,
-        pdf: pdf_options(config),
-    };
+    let options = ExternalOptions { pdf: pdf_options(config) };
 
     let fs = typst_bundle::export(&bundle, &options)?;
     let root = match &config.output {
@@ -542,6 +538,7 @@ fn export_image(
                 Output::Stdout => Output::Stdout,
             };
 
+            let pixel_per_pt = doc.options().png.pixel_per_pt();
             export_image_page(config, page, &output, fmt)?;
             Ok(output)
         })
@@ -587,7 +584,7 @@ fn export_image_page(
     match fmt {
         ImageExportFormat::Png => {
             let opts = typst_render::RenderOptions {
-                pixel_per_pt: config.ppi / 72.0,
+                pixel_per_pt: config.ppi.map(|ppi| ppi / 72.0),
                 render_bleed: false,
             };
             let pixmap = typst_render::render(page, &opts);

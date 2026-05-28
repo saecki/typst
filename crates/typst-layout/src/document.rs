@@ -52,11 +52,15 @@ impl PagedDocument {
         &mut self.info
     }
 
-    /// Options set
+    /// Document options set before or during compilation.
     pub fn options(&self) -> &PagedDocumentOptions {
         &self.options
     }
 
+    /// Document options set before or during compilation.
+    pub fn options_mut(&mut self) -> &mut PagedDocumentOptions {
+        &mut self.options
+    }
 
     /// Provides the ability to execute queries on the document.
     pub fn introspector(&self) -> &Arc<PagedIntrospector> {

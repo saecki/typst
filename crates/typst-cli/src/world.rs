@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 
 use ecow::{EcoString, eco_format};
 use typst::diag::{FileError, FileResult};
-use typst::foundations::{Bytes, Datetime, Dict, Duration, IntoValue, Repr};
+use typst::foundations::{Bytes, Datetime, Dict, Duration, IntoValue, Repr, Styles};
 use typst::syntax::{
     FileId, PathError, RootedPath, Source, VirtualPath, VirtualRoot, VirtualizeError,
 };
@@ -64,7 +64,10 @@ impl SystemWorld {
             let features =
                 process_args.features.iter().copied().map(Into::into).collect();
 
-            Library::builder().with_inputs(inputs).with_features(features).build()
+            let mut styles = Styles::new();
+            // TODO: insert document options passed by the CLI
+
+            Library::builder().with_inputs(inputs).with_features(features).with_styles(styles).build()
         };
 
         let now = match world_args.creation_timestamp {

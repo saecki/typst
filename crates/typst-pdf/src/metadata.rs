@@ -33,7 +33,7 @@ pub(crate) fn build_metadata(gc: &GlobalContext, doc_lang: Option<Locale>) -> Me
         metadata = metadata.description(description.to_string());
     }
 
-    if let Some(ident) = gc.options.ident.custom() {
+    if let Some(ident) = gc.config.ident.custom() {
         metadata = metadata.document_id(ident.to_string());
     }
 
@@ -51,7 +51,7 @@ pub(crate) fn build_metadata(gc: &GlobalContext, doc_lang: Option<Locale>) -> Me
 ///     date from the options.
 /// (3) Otherwise, we don't write date metadata.
 pub fn creation_date(gc: &GlobalContext) -> Option<krilla::metadata::DateTime> {
-    let (datetime, tz) = match (gc.document.info().date, gc.options.timestamp) {
+    let (datetime, tz) = match (gc.document.info().date, gc.config.timestamp) {
         (Smart::Custom(Some(date)), _) => (date, None),
         (Smart::Auto, Some(timestamp)) => (timestamp.datetime, Some(timestamp.timezone)),
         _ => return None,

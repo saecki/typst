@@ -325,6 +325,10 @@ pub struct CompileArgs {
     /// Whether to make the serialized output pretty.
     /// This will increase the size of the generated file, but will produce a
     /// human readable nicely formatted file if possible.
+    ///
+    /// [default: false]
+    // TODO: Is there a cleaner way of providing a default value hint, without
+    // actually setting it?
     pub pretty: Option<bool>,
 
     /// Which pages to export. When unspecified, all pages are exported.

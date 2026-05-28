@@ -30,7 +30,7 @@ pub fn create_link_anchors(
             };
             let targets = targets.get(path).unwrap_or(&empty);
             match doc {
-                BundleDocument::Html(doc, _) => Either::Left(
+                BundleDocument::Html(doc) => Either::Left(
                     // Mutates the DOM in place to insert IDs as necessary.
                     typst_html::create_link_anchors(
                         doc.as_mut(),

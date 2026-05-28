@@ -15,17 +15,18 @@ use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 use typst_layout::PagedDocument;
 use typst_library::diag::{
-    At, ExpectInternal, SourceDiagnostic, SourceResult, bail, error,
+    At, ExpectInternal, SourceDiagnostic, SourceResult, StrResult, bail, error,
 };
-use typst_library::foundations::{NativeElement, Repr};
+use typst_library::foundations::{NativeElement, Repr, Smart};
 use typst_library::introspection::{Introspector, Location, PagedPosition, Tag};
-use typst_library::layout::{Abs, Frame, FrameItem, GroupItem, Sides, Size, Transform};
-use typst_library::model::{HeadingElem, LateLinkResolver};
+use typst_library::layout::{
+    Abs, Frame, FrameItem, GroupItem, PageRanges, Sides, Size, Transform,
+};
+use typst_library::model::{HeadingElem, LateLinkResolver, PdfDocumentOptions};
 use typst_library::text::Font;
 use typst_library::visualize::{Geometry, Paint};
 use typst_syntax::Span;
 
-use crate::PdfOptions;
 use crate::attach::attach_files;
 use crate::image::handle_image;
 use crate::link::{LinkAnnotation, handle_link};
@@ -36,6 +37,58 @@ use crate::shape::handle_shape;
 use crate::tags::{self, GroupId, Tags};
 use crate::text::handle_text;
 use crate::util::{AbsExt, TransformExt, convert_path, display_font};
+use crate::{PdfOptions, PdfStandards, Timestamp};
+
+/// The resolved PDF configuration from the [`crate::PdfOptions`] and
+/// [`typst_library::model::PdfDocumentOptions`].
+pub(crate) struct PdfConfig<'a> {
+    /// See [`PdfOptions::ident`].
+    pub ident: Smart<&'a str>,
+    /// See [`PdfOptions::timestamp`].
+    pub timestamp: Option<Timestamp>,
+    /// Specifies which ranges of pages should be exported in the PDF. When
+    /// `None`, all pages should be exported.
+    pub page_ranges: Option<PageRanges>,
+    /// A list of PDF standards that Typst will enforce conformance with.
+    pub standards: PdfStandards,
+    /// By default, even when not producing a `PDF/UA-1` document, a tagged PDF
+    /// document is written to provide a baseline of accessibility. In some
+    /// circumstances, for example when trying to reduce the size of a document,
+    /// it can be desirable to disable tagged PDF.
+    pub tagged: bool,
+}
+
+impl<'a> PdfConfig<'a> {
+    pub fn new(
+        external: &PdfOptions<'a>,
+        document: &PdfDocumentOptions,
+    ) -> StrResult<Self> {
+        let standards = document
+            .standard
+            .clone()
+            .map(PdfStandards::new)
+            .transpose()?
+            .unwrap_or_default();
+
+        // TODO: Add check like in the CLI
+        let tagged = document.tagged();
+        let page_ranges = document.pages.clone();
+
+        Ok(Self {
+            ident: external.ident,
+            timestamp: external.timestamp,
+            page_ranges,
+            standards,
+            tagged,
+        })
+    }
+
+    /// Whether the current export mode is PDF/UA-1, and in the future maybe
+    /// PDF/UA-2.
+    pub fn is_pdf_ua(&self) -> bool {
+        self.standards.config.validator() == Validator::UA1
+    }
+}
 
 #[typst_macros::time(name = "convert document")]
 pub fn convert(
@@ -44,19 +97,23 @@ pub fn convert(
     anchors: &[(Location, EcoString)],
     link_resolver: Option<Tracked<LateLinkResolver>>,
 ) -> SourceResult<Vec<u8>> {
+    // TODO: Provide meaningful span.
+    let config =
+        PdfConfig::new(options, &typst_document.options().pdf).at(Span::detached())?;
+
     let settings = SerializeSettings {
         compress_content_streams: true,
         no_device_cs: true,
         ascii_compatible: false,
         xmp_metadata: true,
         cmyk_profile: None,
-        configuration: options.standards.config,
-        enable_tagging: options.tagged,
+        configuration: config.standards.config,
+        enable_tagging: config.tagged,
         render_svg_glyph_fn: render_svg_glyph,
     };
 
     let mut document = Document::new_with(settings);
-    let page_index_converter = PageIndexConverter::new(typst_document, options);
+    let page_index_converter = PageIndexConverter::new(typst_document, &config);
     let named_destinations = collect_named_destinations(
         &mut document,
         typst_document,
@@ -64,11 +121,11 @@ pub fn convert(
         &page_index_converter,
     );
 
-    let tags = tags::init(typst_document, options)?;
+    let tags = tags::init(typst_document, &config)?;
 
     let mut gc = GlobalContext::new(
         typst_document,
-        options,
+        &config,
         link_resolver,
         named_destinations,
         page_index_converter,
@@ -83,7 +140,7 @@ pub fn convert(
     document.set_metadata(build_metadata(&gc, doc_lang));
     document.set_tag_tree(tree);
 
-    finish(document, gc, options.standards.config)
+    finish(document, gc, config.standards.config)
 }
 
 fn convert_pages(gc: &mut GlobalContext, document: &mut Document) -> SourceResult<()> {
@@ -276,7 +333,7 @@ pub(crate) struct GlobalContext<'a> {
     /// The document to convert.
     pub(crate) document: &'a PagedDocument,
     /// Options for PDF export.
-    pub(crate) options: &'a PdfOptions<'a>,
+    pub(crate) config: &'a PdfConfig<'a>,
     /// Used to resolve cross-document links in bundle export.
     pub(crate) link_resolver: Option<Tracked<'a, LateLinkResolver<'a>>>,
     /// Mapping between locations in the document and named destinations.
@@ -289,7 +346,7 @@ pub(crate) struct GlobalContext<'a> {
 impl<'a> GlobalContext<'a> {
     pub(crate) fn new(
         document: &'a PagedDocument,
-        options: &'a PdfOptions,
+        config: &'a PdfConfig,
         link_resolver: Option<Tracked<'a, LateLinkResolver<'a>>>,
         loc_to_names: FxHashMap<Location, NamedDestination>,
         page_index_converter: PageIndexConverter,
@@ -299,7 +356,7 @@ impl<'a> GlobalContext<'a> {
             fonts_forward: FxHashMap::default(),
             fonts_backward: FxHashMap::default(),
             document,
-            options,
+            config,
             link_resolver,
             loc_to_names,
             image_to_spans: FxHashMap::default(),
@@ -770,12 +827,12 @@ pub(crate) struct PageIndexConverter {
 }
 
 impl PageIndexConverter {
-    pub fn new(document: &PagedDocument, options: &PdfOptions) -> Self {
+    pub fn new(document: &PagedDocument, config: &PdfConfig) -> Self {
         let mut page_indices = FxHashMap::default();
         let mut skipped_pages = 0;
 
         for i in 0..document.pages().len() {
-            if options
+            if config
                 .page_ranges
                 .as_ref()
                 .is_some_and(|ranges| !ranges.includes_page_index(i))

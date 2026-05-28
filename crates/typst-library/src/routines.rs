@@ -13,7 +13,7 @@ use crate::foundations::{
 };
 use crate::introspection::{Introspector, Locator, SplitLocator};
 use crate::layout::{Frame, Region};
-use crate::model::{DocumentInfo, DocumentOptions};
+use crate::model::DocumentInfo;
 use crate::visualize::Color;
 use crate::{Library, World};
 
@@ -154,7 +154,7 @@ pub enum RealizationKind<'a> {
     Bundle,
     /// This the root realization for a document. Requires a mutable reference
     /// to document metadata that will be filled from `set document` rules.
-    Document { info: &'a mut DocumentInfo, options: &'a mut DocumentOptions },
+    Document { info: &'a mut DocumentInfo },
     /// A nested realization in a container (e.g. a `block` or an `html.div`).
     /// Requires a mutable reference to an enum that will be set to
     /// `FragmentKind::Inline` if the fragment's content was fully inline.

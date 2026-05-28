@@ -71,6 +71,11 @@ impl HtmlDocument {
         &mut self.info
     }
 
+    /// Document options set before or during compilation.
+    pub fn options(&self) -> &HtmlDocumentOptions {
+        &self.options
+    }
+
     /// Provides the ability to execute queries on the document.
     pub fn introspector(&self) -> &Arc<HtmlIntrospector> {
         &self.introspector

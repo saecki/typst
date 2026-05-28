@@ -8,8 +8,7 @@ use typst_library::diag::{At, SourceDiagnostic, SourceResult, error};
 use typst_library::text::Locale;
 use typst_syntax::Span;
 
-use crate::PdfOptions;
-use crate::convert::{GlobalContext, to_span};
+use crate::convert::{GlobalContext, PdfConfig, to_span};
 use crate::tags::context::{self, Annotations, BBoxCtx, Ctx};
 use crate::tags::groups::{Group, GroupId, GroupKind, TagStorage};
 use crate::tags::resolve::accumulator::Accumulator;
@@ -32,7 +31,7 @@ pub enum TagNode {
 }
 
 struct Resolver<'a> {
-    options: &'a PdfOptions<'a>,
+    config: &'a PdfConfig<'a>,
     ctx: &'a Ctx,
     groups: &'a IdVec<Group>,
     tags: &'a mut TagStorage,
@@ -67,7 +66,7 @@ pub fn resolve(gc: &mut GlobalContext) -> SourceResult<(Option<Locale>, TagTree)
     }
 
     let mut resolver = Resolver {
-        options: gc.options,
+        config: gc.config,
         ctx: &gc.tags.tree.ctx,
         groups: &gc.tags.tree.groups.list,
         tags: &mut gc.tags.tree.groups.tags,
@@ -191,7 +190,7 @@ fn resolve_group_node(
         }
     }
 
-    if rs.options.is_pdf_ua() {
+    if rs.config.is_pdf_ua() {
         validate_children(rs, &tag, &nodes);
     }
 
@@ -325,9 +324,9 @@ fn build_group_tag(rs: &mut Resolver, group: &Group) -> Option<TagKind> {
     if let TagKind::Hn(tag) = &tag {
         let prev_level = rs.last_heading_level.map_or(0, |l| l.get());
         let next_level = tag.level();
-        if rs.options.is_pdf_ua() && next_level.get().saturating_sub(prev_level) > 1 {
+        if rs.config.is_pdf_ua() && next_level.get().saturating_sub(prev_level) > 1 {
             let span = to_span(tag.as_any().location);
-            let validator = rs.options.standards.config.validator().as_str();
+            let validator = rs.config.standards.config.validator().as_str();
             if rs.last_heading_level.is_none() {
                 rs.errors.push(error!(
                     span,
@@ -464,7 +463,7 @@ fn validate_children_groups(
         };
 
         if !is_valid(&child.tag) {
-            let validator = rs.options.standards.config.validator().as_str();
+            let validator = rs.config.standards.config.validator().as_str();
             let span = to_span(child.tag.location()).or(parent_span);
             let parent = tag_name(parent);
             let child = tag_name(&child.tag);
@@ -480,7 +479,7 @@ fn validate_children_groups(
     }
 
     if caption_spans.len() > 1 {
-        let validator = rs.options.standards.config.validator().as_str();
+        let validator = rs.config.standards.config.validator().as_str();
         let parent = tag_name(parent);
         let child = tag_name(&Tag::Caption.into());
 
@@ -500,7 +499,7 @@ fn validate_children_groups(
     }
 
     if contains_leaf_nodes {
-        let validator = rs.options.standards.config.validator().as_str();
+        let validator = rs.config.standards.config.validator().as_str();
         let parent = tag_name(parent);
         rs.errors.push(error!(
             parent_span,

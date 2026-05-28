@@ -6,10 +6,10 @@ use rustc_hash::FxBuildHasher;
 use typst_html::HtmlElement;
 use typst_layout::PagedDocument;
 use typst_library::diag::{At, ParallelCollectCombinedResult, SourceResult};
-use typst_library::foundations::{Bytes, Fold};
+use typst_library::foundations::Bytes;
 use typst_library::introspection::Location;
 use typst_library::model::{LateLinkResolver, PagedFormat};
-use typst_pdf::{PdfOptions, Timestamp};
+use typst_pdf::PdfOptions;
 use typst_render::RenderOptions;
 use typst_syntax::{Span, VirtualPath};
 use typst_utils::Scalar;
@@ -41,17 +41,9 @@ pub fn export(bundle: &Bundle, options: &ExternalOptions) -> SourceResult<Virtua
 
 /// External settings for bundle export.
 #[derive(Debug)]
-pub struct ExternalOptions {
+pub struct ExternalOptions<'a> {
     /// Options for exporting PDF documents.
-    pub pdf: ExternalPdfOptions,
-}
-
-/// External settings for PDF export.
-#[derive(Debug)]
-pub struct ExternalPdfOptions {
-    /// If not `None`, shall be the creation timestamp of the document. It will
-    /// only be used if `set document(date: ..)` is `auto`.
-    pub timestamp: Option<Timestamp>,
+    pub pdf: PdfOptions<'a>,
 }
 
 /// Exports a single document.
@@ -62,24 +54,16 @@ fn export_document(
 ) -> SourceResult<Bytes> {
     match doc {
         BundleDocument::Paged(doc, extras) => match &extras.format {
-            PagedFormat::Pdf => {
-                // TODO: Store span of document element somewhere.
-                let options =
-                    PdfOptions::new(options, ext.pdf.timestamp).at(Span::detached())?;
-                export_pdf(doc, &options, anchors, link_resolver)
-            }
+            PagedFormat::Pdf => export_pdf(doc, &ext.pdf, &extras.anchors, link_resolver),
             PagedFormat::Png => {
-                let options = ext.png.fold(options);
-                // This is the default value of: 144ppi == 2ppt
-                let pixel_per_pt = options.pixel_per_pt.unwrap_or(Scalar::new(2.0));
+                let pixel_per_pt = doc.options().png.pixel_per_pt();
                 export_png(doc, pixel_per_pt)
             }
             PagedFormat::Svg => export_svg(doc, &extras.anchors, link_resolver),
         },
-        BundleDocument::Html(doc, options) => {
-            // TODO: The defaults should be stored somewhere else
-            let pretty = options.pretty.unwrap_or(false);
-            export_html(doc.root(), options.pretty, link_resolver),
+        BundleDocument::Html(doc) => {
+            let pretty = doc.options().pretty();
+            export_html(doc.root(), pretty, link_resolver)
         }
     }
 }
@@ -147,8 +131,8 @@ fn export_svg(
 #[typst_macros::time(name = "export html")]
 fn export_html(
     root: &HtmlElement,
-    link_resolver: Tracked<LateLinkResolver>,
     pretty: bool,
+    link_resolver: Tracked<LateLinkResolver>,
 ) -> SourceResult<Bytes> {
-    typst_html::html_in_bundle(root, link_resolver, pretty).map(Bytes::from_string)
+    typst_html::html_in_bundle(root, pretty, link_resolver).map(Bytes::from_string)
 }

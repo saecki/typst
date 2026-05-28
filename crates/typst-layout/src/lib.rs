@@ -17,7 +17,7 @@ mod shapes;
 mod stack;
 mod transforms;
 
-pub use self::document::{Page, PagedDocument};
+pub use self::document::{Page, PagedDocument, PagedDocumentOptions};
 pub use self::flow::{layout_fragment, layout_frame};
 pub use self::introspect::PagedIntrospector;
 pub use self::pages::{layout_document, layout_document_for_bundle};

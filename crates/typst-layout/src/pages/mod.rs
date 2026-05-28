@@ -161,7 +161,7 @@ fn layout_document_common(
     options.populate(styles);
 
     let mut children = (engine.library.routines.realize)(
-        RealizationKind::Document { info: &mut info, options: &mut options },
+        RealizationKind::Document { info: &mut info },
         &mut engine,
         &mut locator,
         &arenas,

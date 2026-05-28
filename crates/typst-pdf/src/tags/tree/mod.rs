@@ -1,4 +1,4 @@
-use crate::PdfOptions;
+use crate::convert::PdfConfig;
 use crate::tags::GroupId;
 use crate::tags::context::{BBoxCtx, BBoxId, Ctx};
 use crate::tags::groups::{Group, GroupKind, Groups};
@@ -40,8 +40,8 @@ pub struct Tree {
 }
 
 impl Tree {
-    pub fn empty(document: &PagedDocument, options: &PdfOptions) -> Self {
-        TreeBuilder::new(document, options).finish()
+    pub fn empty(document: &PagedDocument, config: &PdfConfig) -> Self {
+        TreeBuilder::new(document, config).finish()
     }
 
     pub fn current(&self) -> GroupId {

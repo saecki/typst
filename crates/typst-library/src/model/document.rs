@@ -1,4 +1,4 @@
-use ecow::EcoString;
+use ecow::{EcoString, EcoVec, eco_vec};
 use serde::Serialize;
 use typst_syntax::VirtualPath;
 use typst_utils::Scalar;
@@ -372,6 +372,16 @@ cast! {
     },
 }
 
+impl HtmlDocumentOptions {
+    pub fn kind(&self) -> HtmlDocumentKind {
+        self.kind.unwrap_or_default()
+    }
+
+    pub fn pretty(&self) -> bool {
+        self.pretty.unwrap_or(false)
+    }
+}
+
 impl Fold for HtmlDocumentOptions {
     fn fold(self, outer: Self) -> Self {
         Self {
@@ -381,9 +391,10 @@ impl Fold for HtmlDocumentOptions {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Cast)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Cast)]
 pub enum HtmlDocumentKind {
     /// A standalone HTML document.
+    #[default]
     Standalone,
     /// A HTML document fragment.
     Fragment,
@@ -421,6 +432,12 @@ cast! {
 
 }
 
+impl PdfDocumentOptions {
+    pub fn tagged(&self) -> bool {
+        self.tagged.unwrap_or(true)
+    }
+}
+
 impl Fold for PdfDocumentOptions {
     fn fold(self, outer: Self) -> Self {
         Self {
@@ -432,7 +449,7 @@ impl Fold for PdfDocumentOptions {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
-pub struct PdfStandards(Vec<PdfStandard>);
+pub struct PdfStandards(EcoVec<PdfStandard>);
 
 impl PdfStandards {
     /// Returns an iterator over the standards.
@@ -444,17 +461,23 @@ impl PdfStandards {
 impl IntoIterator for PdfStandards {
     type Item = PdfStandard;
 
-    type IntoIter = std::vec::IntoIter<PdfStandard>;
+    type IntoIter = ecow::vec::IntoIter<PdfStandard>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
 }
 
+impl FromIterator<PdfStandard> for PdfStandards {
+    fn from_iter<T: IntoIterator<Item = PdfStandard>>(iter: T) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+
 cast! {
     PdfStandards,
     self => self.0.into_value(),
-    standard: PdfStandard => PdfStandards(vec![standard]),
+    standard: PdfStandard => PdfStandards(eco_vec![standard]),
     values: Array => Self(values.into_iter().map(Value::cast).collect::<HintedStrResult<_>>()?),
 }
 
@@ -530,6 +553,13 @@ cast! {
         let pixel_per_pt = v.take("pixel-per-pt").ok().map(Value::cast).transpose()?;
         v.finish(&[])?;
         Self { pixel_per_pt }
+    }
+}
+
+impl PngDocumentOptions {
+    pub fn pixel_per_pt(&self) -> Scalar {
+        // The default value is: 144ppi == 2ppt.
+        self.pixel_per_pt.unwrap_or(Scalar::new(2.0))
     }
 }
 

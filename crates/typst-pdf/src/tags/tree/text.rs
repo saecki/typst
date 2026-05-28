@@ -8,7 +8,7 @@ use typst_library::text::{
 };
 use typst_library::visualize::Stroke;
 
-use crate::PdfOptions;
+use crate::convert::PdfConfig;
 use crate::tags::tree::Tree;
 use crate::tags::util::{PropertyOptRef, PropertyValCloned, PropertyValCopied};
 use crate::tags::{GroupId, util};
@@ -125,7 +125,7 @@ impl TextParams {
 
 pub fn resolve_text_attrs(
     tree: &mut Tree,
-    options: &PdfOptions,
+    config: &PdfConfig,
     text: &TextItem,
 ) -> ResolvedTextAttrs {
     let params = TextParams::new(text);
@@ -135,7 +135,7 @@ pub fn resolve_text_attrs(
         return attrs;
     }
 
-    let (attrs, error) = compute_attrs(options, &tree.state.text_attrs.items, text);
+    let (attrs, error) = compute_attrs(config, &tree.state.text_attrs.items, text);
 
     tree.errors.extend(error);
 
@@ -144,7 +144,7 @@ pub fn resolve_text_attrs(
 }
 
 fn compute_attrs(
-    options: &PdfOptions,
+    config: &PdfConfig,
     items: &[(GroupId, TextAttr)],
     text: &TextItem,
 ) -> (ResolvedTextAttrs, Option<SourceDiagnostic>) {
@@ -180,7 +180,7 @@ fn compute_attrs(
                 compute_deco(
                     &mut resolved_deco,
                     &mut err,
-                    options,
+                    config,
                     text,
                     underline.pack_ref(),
                     TextDecoKind::Underline,
@@ -191,7 +191,7 @@ fn compute_attrs(
                 compute_deco(
                     &mut resolved_deco,
                     &mut err,
-                    options,
+                    config,
                     text,
                     overline.pack_ref(),
                     TextDecoKind::Overline,
@@ -202,7 +202,7 @@ fn compute_attrs(
                 compute_deco(
                     &mut resolved_deco,
                     &mut err,
-                    options,
+                    config,
                     text,
                     strike.pack_ref(),
                     TextDecoKind::Strike,
@@ -245,7 +245,7 @@ fn compute_script(
 fn compute_deco<'a>(
     resolved: &mut Option<(&'a Content, ResolvedTextDeco)>,
     err: &mut Option<SourceDiagnostic>,
-    options: &PdfOptions,
+    config: &PdfConfig,
     text: &TextItem,
     elem: &'a Content,
     kind: TextDecoKind,
@@ -255,8 +255,8 @@ fn compute_deco<'a>(
         Some((elem, deco)) => {
             // PDF can only represent one text decoration style at a time.
             // If PDF/UA-1 is enforced throw an error.
-            if err.is_none() && deco.kind != kind && options.is_pdf_ua() {
-                let validator = options.standards.config.validator().as_str();
+            if err.is_none() && deco.kind != kind && config.is_pdf_ua() {
+                let validator = config.standards.config.validator().as_str();
                 let span = elem.span();
                 *err = Some(error!(
                     span,

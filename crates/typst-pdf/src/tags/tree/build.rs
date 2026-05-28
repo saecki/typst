@@ -44,7 +44,7 @@ use typst_library::text::{
 use typst_library::visualize::ImageElem;
 use typst_syntax::Span;
 
-use crate::PdfOptions;
+use crate::convert::PdfConfig;
 use crate::tags::GroupId;
 use crate::tags::context::{Ctx, FigureCtx, GridCtx, ListCtx, OutlineCtx, TableCtx};
 use crate::tags::groups::{BreakOpportunity, BreakPriority, GroupKind, Groups};
@@ -53,7 +53,7 @@ use crate::tags::tree::{Break, TraversalStates, Tree, Unfinished};
 use crate::tags::util::{ArtifactKindExt, PropertyValCopied};
 
 pub struct TreeBuilder<'a> {
-    options: &'a PdfOptions<'a>,
+    config: &'a PdfConfig<'a>,
 
     /// Each [`FrameItem::Tag`] and each [`FrameItem::Group`] with a parent
     /// will append a progression to this tree. This list of progressions is
@@ -75,7 +75,7 @@ pub struct TreeBuilder<'a> {
 }
 
 impl<'a> TreeBuilder<'a> {
-    pub fn new(document: &PagedDocument, options: &'a PdfOptions) -> Self {
+    pub fn new(document: &PagedDocument, config: &'a PdfConfig) -> Self {
         let doc_lang = document.info().locale.custom();
         let mut groups = Groups::new();
         let doc = groups.new_virtual(
@@ -84,7 +84,7 @@ impl<'a> TreeBuilder<'a> {
             GroupKind::Root(doc_lang),
         );
         Self {
-            options,
+            config,
             progressions: vec![doc],
             breaks: Vec::new(),
             unfinished: Vec::new(),
@@ -176,7 +176,7 @@ struct StackEntry {
     prog_idx: u32,
 }
 
-pub fn build(document: &PagedDocument, options: &PdfOptions) -> SourceResult<Tree> {
+pub fn build(document: &PagedDocument, options: &PdfConfig) -> SourceResult<Tree> {
     let mut tree = TreeBuilder::new(document, options);
     for page in document.pages() {
         visit_frame(&mut tree, &page.frame)?;
@@ -452,14 +452,14 @@ fn progress_tree_start(tree: &mut TreeBuilder, elem: &Content) -> GroupId {
     } else if let Some(heading) = elem.to_packed::<HeadingElem>() {
         let level = heading.level().try_into().unwrap_or(NonZeroU16::MAX);
         let title = heading.body.plain_text().to_string();
-        if title.is_empty() && tree.options.is_pdf_ua() {
+        if title.is_empty() && tree.config.is_pdf_ua() {
             let contains_context = heading.body.traverse(&mut |c| {
                 if c.is::<ContextElem>() {
                     return ControlFlow::Break(());
                 }
                 ControlFlow::Continue(())
             });
-            let validator = tree.options.standards.config.validator().as_str();
+            let validator = tree.config.standards.config.validator().as_str();
             tree.errors.push(if contains_context.is_break() {
                 error!(
                     heading.span(),
@@ -601,7 +601,7 @@ fn progress_tree_end(tree: &mut TreeBuilder, loc: Location) -> SourceResult<Grou
 
     // There are overlapping tags in the tag tree. Figure out whether breaking
     // up the current tag stack is semantically ok, and how to do it.
-    let is_pdf_ua = tree.options.is_pdf_ua();
+    let is_pdf_ua = tree.config.is_pdf_ua();
     let mut inner_break_priority = Some(BreakPriority::MAX);
     let mut inner_non_breakable_span = Span::detached();
     let mut inner_non_breakable_in_pdf_ua = false;
@@ -649,7 +649,7 @@ fn progress_tree_end(tree: &mut TreeBuilder, loc: Location) -> SourceResult<Grou
                 || matches!(outer_break_opportunity, BreakOpportunity::NoPdfUa(_));
 
             if non_breakable_in_pdf_ua {
-                let validator = tree.options.standards.config.validator().as_str();
+                let validator = tree.config.standards.config.validator().as_str();
                 bail!(
                     non_breakable_span,
                     "{validator} error: invalid document structure, \

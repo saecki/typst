@@ -2,6 +2,7 @@ use std::num::NonZeroUsize;
 use std::ops::RangeInclusive;
 use std::str::FromStr;
 
+use ecow::EcoVec;
 use typst_utils::{NonZeroExt, Scalar, singleton};
 
 use crate::diag::{HintedStrResult, SourceResult, bail};
@@ -758,7 +759,7 @@ cast! {
 
 /// A list of page ranges to be exported.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct PageRanges(Vec<PageRange>);
+pub struct PageRanges(EcoVec<PageRange>);
 
 cast! {
     PageRanges,
@@ -774,7 +775,7 @@ pub type PageRange = RangeInclusive<Option<NonZeroUsize>>;
 
 impl PageRanges {
     /// Create new page ranges.
-    pub fn new(ranges: Vec<PageRange>) -> Self {
+    pub fn new(ranges: EcoVec<PageRange>) -> Self {
         Self(ranges)
     }
 

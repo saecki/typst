@@ -20,14 +20,12 @@ use std::hash::{Hash, Hasher};
 
 use comemo::Tracked;
 use ecow::{EcoString, eco_format};
-use krilla::configure::Validator;
 use serde::{Deserialize, Serialize};
 use typst_layout::PagedDocument;
-use typst_library::diag::{HintedStrResult, SourceResult, StrResult, bail};
+use typst_library::diag::{SourceResult, StrResult, bail};
 use typst_library::foundations::Smart;
 use typst_library::introspection::Location;
-use typst_library::layout::PageRanges;
-use typst_library::model::{LateLinkResolver, PdfDocumentOptions};
+use typst_library::model::LateLinkResolver;
 
 /// Export a document into a PDF file.
 ///
@@ -71,54 +69,11 @@ pub struct PdfOptions<'a> {
     /// If not `None`, shall be the creation timestamp of the document. It will
     /// only be used if `set document(date: ..)` is `auto`.
     pub timestamp: Option<Timestamp>,
-    /// Specifies which ranges of pages should be exported in the PDF. When
-    /// `None`, all pages should be exported.
-    pub page_ranges: Option<PageRanges>,
-    /// A list of PDF standards that Typst will enforce conformance with.
-    pub standards: PdfStandards,
-    /// By default, even when not producing a `PDF/UA-1` document, a tagged PDF
-    /// document is written to provide a baseline of accessibility. In some
-    /// circumstances, for example when trying to reduce the size of a document,
-    /// it can be desirable to disable tagged PDF.
-    pub tagged: bool,
-}
-
-impl PdfOptions<'_> {
-    pub fn new(
-        options: &PdfDocumentOptions,
-        timestamp: Option<Timestamp>,
-    ) -> HintedStrResult<Self> {
-        let standards = (options.standard.as_ref())
-            .map(|standards| PdfStandards::new(standards.iter()))
-            .transpose()?;
-
-        // TODO: Add check similar to the CLI.
-
-        Ok(Self {
-            ident: Smart::Auto,
-            timestamp,
-            page_ranges: options.pages.clone(),
-            standards: standards.unwrap_or_default(),
-            tagged: options.tagged.unwrap_or(true),
-        })
-    }
-
-    /// Whether the current export mode is PDF/UA-1, and in the future maybe
-    /// PDF/UA-2.
-    pub(crate) fn is_pdf_ua(&self) -> bool {
-        self.standards.config.validator() == Validator::UA1
-    }
 }
 
 impl Default for PdfOptions<'_> {
     fn default() -> Self {
-        Self {
-            ident: Smart::Auto,
-            timestamp: None,
-            page_ranges: None,
-            standards: PdfStandards::default(),
-            tagged: true,
-        }
+        Self { ident: Smart::Auto, timestamp: None }
     }
 }
 

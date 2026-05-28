@@ -22,7 +22,7 @@ use typst_kit::server::HttpServer;
 use typst_kit::timer::Timer;
 use typst_kit::watcher::Watcher;
 use typst_layout::PagedDocument;
-use typst_pdf::PdfOptions;
+use typst_pdf::PdfConfig;
 
 use crate::args::{
     CliArguments, Command, CompileArgs, CompileCommand, OutputFormat, WatchCommand,
@@ -214,7 +214,7 @@ fn write_virtual_fs(root: &Path, fs: &VirtualFs) {
 
 /// Exports a document to PDF and writes it to disk.
 fn export_pdf(document: &PagedDocument, config: &Config) -> SourceResult<()> {
-    let data = typst_pdf::pdf(document, &typst_pdf::PdfOptions::default())?;
+    let data = typst_pdf::pdf(document, &typst_pdf::PdfConfig::default())?;
     if let Some(path) = &config.output {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).unwrap();

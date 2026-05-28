@@ -10,8 +10,7 @@ use typst_library::text::{Locale, TextItem};
 use typst_library::visualize::{Image, Shape};
 use typst_syntax::Span;
 
-use crate::PdfOptions;
-use crate::convert::{FrameContext, GlobalContext};
+use crate::convert::{FrameContext, GlobalContext, PdfConfig};
 use crate::link::{LinkAnnotation, LinkAnnotationKind};
 use crate::tags::tree::Tree;
 
@@ -25,15 +24,15 @@ mod resolve;
 mod tree;
 mod util;
 
-pub fn init(document: &PagedDocument, options: &PdfOptions) -> SourceResult<Tags> {
-    let tree = if options.tagged {
-        if options.page_ranges.is_some() {
+pub fn init(document: &PagedDocument, config: &PdfConfig) -> SourceResult<Tags> {
+    let tree = if config.tagged {
+        if config.page_ranges.is_some() {
             bail!(Span::detached(), "cannot enable tagged PDF and export a page range");
         }
 
-        tree::build(document, options)?
+        tree::build(document, config)?
     } else {
-        Tree::empty(document, options)
+        Tree::empty(document, config)
     };
     Ok(Tags::new(tree))
 }
@@ -126,7 +125,7 @@ pub fn tiling<T>(
 /// disabled by the user using the [`PdfOptions::tagged`] flag, or we're inside
 /// a tiling.
 pub fn disabled(gc: &GlobalContext) -> bool {
-    !gc.options.tagged || gc.tags.in_tiling
+    !gc.config.tagged || gc.tags.in_tiling
 }
 
 /// Add all annotations that were found in the page frame.
@@ -193,7 +192,7 @@ pub fn text<'a, 'b>(
         return TagHandle { surface, started: false };
     }
 
-    let attrs = tree::resolve_text_attrs(&mut gc.tags.tree, gc.options, text);
+    let attrs = tree::resolve_text_attrs(&mut gc.tags.tree, gc.config, text);
 
     let lang = {
         let locale = Locale::new(text.lang, text.region);
@@ -259,7 +258,7 @@ fn update_bbox(
     compute_bbox: impl FnOnce() -> Rect,
 ) {
     if let Some(bbox) = gc.tags.tree.parent_bbox()
-        && gc.options.standards.config.validator() == Validator::UA1
+        && gc.config.standards.config.validator() == Validator::UA1
     {
         bbox.expand_frame(fc, compute_bbox);
     }
@@ -269,22 +268,30 @@ fn update_bbox(
 mod tests {
     use std::num::NonZeroUsize;
 
-    use ecow::EcoVec;
-    use typst_layout::PagedDocument;
+    use ecow::{EcoVec, eco_vec};
+    use typst_layout::{PagedDocument, PagedDocumentOptions};
     use typst_library::layout::PageRanges;
-    use typst_library::model::DocumentInfo;
+    use typst_library::model::{DocumentInfo, PdfDocumentOptions};
     use typst_utils::NonZeroExt;
-
-    use crate::tags;
 
     #[test]
     fn tagged_and_page_range() {
-        let options = crate::PdfOptions {
-            page_ranges: Some(PageRanges::new(vec![Some(NonZeroUsize::ONE)..=None])),
-            ..Default::default()
-        };
-        let document = PagedDocument::new(EcoVec::new(), DocumentInfo::default());
-        let res = tags::init(&document, &options);
+        let options = crate::PdfOptions::default();
+        let document = PagedDocument::new(
+            EcoVec::new(),
+            DocumentInfo::default(),
+            PagedDocumentOptions {
+                pdf: PdfDocumentOptions {
+                    tagged: Some(true),
+                    pages: Some(PageRanges::new(eco_vec![
+                        Some(NonZeroUsize::ONE)..=None
+                    ])),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let res = crate::pdf(&document, &options);
 
         assert_eq!(
             res.err().unwrap().first().unwrap().message,

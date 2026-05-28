@@ -184,6 +184,7 @@ pub struct LibraryBuilder {
     routines: &'static Routines,
     inputs: Option<Dict>,
     features: Features,
+    styles: Styles,
 }
 
 impl LibraryBuilder {
@@ -194,6 +195,7 @@ impl LibraryBuilder {
             routines,
             inputs: None,
             features: Features::default(),
+            styles: Styles::new(),
         }
     }
 
@@ -211,6 +213,12 @@ impl LibraryBuilder {
         self
     }
 
+    /// Configure the base style properties.
+    pub fn with_styles(mut self, styles: Styles) -> Self {
+        self.styles = styles;
+        self
+    }
+
     /// Consumes the builder and returns a `Library`.
     pub fn build(self) -> Library {
         let math = math::module();
@@ -220,7 +228,7 @@ impl LibraryBuilder {
             routines: self.routines,
             global: global.clone(),
             math,
-            styles: Styles::new(),
+            styles: self.styles,
             rules: (self.routines.rules)(),
             std: Binding::detached(global),
             features: self.features,

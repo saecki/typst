@@ -165,7 +165,7 @@ fn html_document_common(
     options.populate(styles);
 
     let children = (engine.library.routines.realize)(
-        RealizationKind::Document { info: &mut info, options: &mut options },
+        RealizationKind::Document { info: &mut info },
         &mut engine,
         &mut locator,
         &arenas,
