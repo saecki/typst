@@ -5,15 +5,16 @@ use comemo::Tracked;
 use ecow::eco_format;
 use rustc_hash::FxHashMap;
 use siphasher::sip128::{Hasher128, SipHasher13};
-use typst_syntax::FileId;
+use typst_syntax::{FileId, Span, Spanned};
 
 use crate::World;
 use crate::diag::{
-    FileError, LoadError, LoadResult, ReportTextPos, StrResult, bail,
-    format_xml_like_error,
+    FileError, LoadError, LoadResult, LoadedWithin, ReportTextPos, SourceDiagnostic,
+    StrResult, bail, format_xml_like_error,
 };
 use crate::foundations::{Bytes, PathOrStr};
 use crate::layout::Axes;
+use crate::loading::{LoadSource, Loaded};
 use crate::text::{
     Font, FontBook, FontFlags, FontStretch, FontStyle, FontVariant, FontWeight,
 };
@@ -86,7 +87,12 @@ impl SvgImage {
         )
         .map_err(format_usvg_error)?;
         if let Some(err) = image_resolver.into_inner().unwrap().error {
-            return Err(err);
+            return Err(LoadError::text(
+                ReportTextPos::None,
+                "failed to load SVG",
+                "failed to load linked image",
+            )
+            .with_cause(err));
         }
         let font_hash = font_resolver.into_inner().unwrap().finish();
         Ok(Self(Arc::new(SvgImageInner {
@@ -163,7 +169,9 @@ fn format_usvg_error(error: usvg::Error) -> LoadError {
         usvg::Error::MalformedGZip => "file is not compressed correctly",
         usvg::Error::ElementsLimitReached => "file is too large",
         usvg::Error::InvalidSize => "width, height, or viewbox is invalid",
-        usvg::Error::ParsingFailed(error) => return format_xml_like_error("SVG", error),
+        usvg::Error::ParsingFailed(error) => {
+            return format_xml_like_error("SVG", error);
+        }
     };
     LoadError::text(ReportTextPos::None, "failed to parse SVG", error)
 }
@@ -329,7 +337,7 @@ struct ImageResolver<'a> {
     /// Parent folder of the SVG file, used to resolve hrefs to linked images, if any.
     svg_file: Option<FileId>,
     /// The first error that occurred when loading a linked image, if any.
-    error: Option<LoadError>,
+    error: Option<SourceDiagnostic>,
 }
 
 impl<'a> ImageResolver<'a> {
@@ -344,25 +352,21 @@ impl<'a> ImageResolver<'a> {
         if self.error.is_some() {
             return None;
         }
-        match self.load_or_error(href, opts) {
+        match self.load_href(href, opts) {
             Ok(image) => Some(image),
             Err(err) => {
-                self.error = Some(LoadError::text(
-                    ReportTextPos::None,
-                    eco_format!("failed to load linked image {href} in SVG"),
-                    err,
-                ));
+                self.error = Some(err);
                 None
             }
         }
     }
 
-    /// Load a linked image or return an error message string.
-    fn load_or_error(
+    /// Load a linked image from a `href` file URL.
+    fn load_href(
         &mut self,
         href: &str,
         opts: &usvg::Options,
-    ) -> StrResult<usvg::ImageKind> {
+    ) -> Result<usvg::ImageKind, SourceDiagnostic> {
         // If the href starts with "file://", strip this prefix to construct an ordinary path.
         let href = href.strip_prefix("file://").unwrap_or(href);
 
@@ -389,56 +393,58 @@ impl<'a> ImageResolver<'a> {
             .map_err(|hinted| hinted.message().clone())?
             .intern();
 
-        // Load image if file can be accessed.
-        match self.world.file(href_file) {
-            Ok(bytes) => {
-                let arc_data = Arc::new(bytes.into_vec());
-                let format = match determine_format_from_path(href_file.vpath()) {
-                    Some(format) => Some(format),
-                    None => ImageFormat::detect(&arc_data),
-                };
-                match format {
-                    Some(ImageFormat::Vector(vector_format)) => match vector_format {
-                        VectorFormat::Svg => {
-                            let tree = usvg::Tree::from_data_nested(&arc_data, opts)
-                                .map_err(|_| "failed to parse SVG")?;
-                            Ok(usvg::ImageKind::SVG(tree))
-                        }
-                        VectorFormat::Pdf => {
-                            Err("PDF documents are not supported".into())
-                        }
-                    },
-                    Some(ImageFormat::Raster(raster_format)) => match raster_format {
-                        RasterFormat::Exchange(exchange_format) => {
-                            match exchange_format {
-                                ExchangeFormat::Gif => Ok(usvg::ImageKind::GIF(arc_data)),
-                                ExchangeFormat::Jpg => {
-                                    Ok(usvg::ImageKind::JPEG(arc_data))
-                                }
-                                ExchangeFormat::Png => Ok(usvg::ImageKind::PNG(arc_data)),
-                                ExchangeFormat::Webp => {
-                                    Ok(usvg::ImageKind::WEBP(arc_data))
-                                }
-                            }
-                        }
-                        RasterFormat::Pixel(_) => {
-                            Err("pixel formats are not supported".into())
-                        }
-                    },
-                    None => Err("unknown image format".into()),
-                }
+        let bytes = self.world.file(href_file).map_err(|err| match err {
+            FileError::NotFound(path) => {
+                eco_format!("file not found, searched at {}", path.display())
             }
-            // TODO: Somehow unify this with `impl Display for FileError`.
-            Err(err) => Err(match err {
-                FileError::NotFound(path) => {
-                    eco_format!("file not found, searched at {}", path.display())
+            FileError::AccessDenied => "access denied".into(),
+            FileError::IsDirectory => "is a directory".into(),
+            FileError::Other(Some(msg)) => msg,
+            FileError::Other(None) => "unspecified error".into(),
+            _ => eco_format!("unexpected error: {err}"),
+        });
+
+        let source = Spanned::new(LoadSource::Path(href_file), Span::detached());
+        self.load_file(href_file, bytes, opts)
+            .within(&Loaded::new(source, bytes))
+    }
+
+    /// Load a linked image from a resolved file.
+    fn load_file(
+        &mut self,
+        href_file: FileId,
+        bytes: &Bytes,
+        opts: &usvg::Options,
+    ) -> LoadResult<usvg::ImageKind> {
+        // Load image if file can be accessed.
+        let arc_data = Arc::new(bytes.into_vec());
+        let format = match determine_format_from_path(href_file.vpath()) {
+            Some(format) => Some(format),
+            None => ImageFormat::detect(&arc_data),
+        };
+        match format {
+            Some(ImageFormat::Vector(vector_format)) => match vector_format {
+                VectorFormat::Svg => {
+                    let tree = usvg::Tree::from_data_nested(&arc_data, opts)
+                        .map_err(format_usvg_error)?;
+                    Ok(usvg::ImageKind::SVG(tree))
                 }
-                FileError::AccessDenied => "access denied".into(),
-                FileError::IsDirectory => "is a directory".into(),
-                FileError::Other(Some(msg)) => msg,
-                FileError::Other(None) => "unspecified error".into(),
-                _ => eco_format!("unexpected error: {err}"),
-            }),
+                VectorFormat::Pdf => Err(LoadError::text(
+                    ReportTextPos::None,
+                    "failed to load PDF",
+                    "linked PDF documents are not supported",
+                )),
+            },
+            Some(ImageFormat::Raster(raster_format)) => match raster_format {
+                RasterFormat::Exchange(exchange_format) => match exchange_format {
+                    ExchangeFormat::Gif => Ok(usvg::ImageKind::GIF(arc_data)),
+                    ExchangeFormat::Jpg => Ok(usvg::ImageKind::JPEG(arc_data)),
+                    ExchangeFormat::Png => Ok(usvg::ImageKind::PNG(arc_data)),
+                    ExchangeFormat::Webp => Ok(usvg::ImageKind::WEBP(arc_data)),
+                },
+                RasterFormat::Pixel(_) => Err("pixel formats are not supported".into()),
+            },
+            None => Err("unknown image format".into()),
         }
     }
 }

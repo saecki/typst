@@ -13,6 +13,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
+use std::sync::Arc;
 
 use az::SaturatingAs;
 use comemo::Tracked;
@@ -307,7 +308,7 @@ pub struct SourceDiagnostic {
     /// A diagnostic message describing the problem.
     pub message: EcoString,
     /// The trace of function calls leading to the problem.
-    pub trace: EcoVec<Spanned<Tracepoint>>,
+    pub trace: EcoVec<Spanned<Tracepoint, DiagSpan>>,
     /// Additional hints to the user.
     ///
     /// - When the span is `None`, these are generic hints. The CLI renders them
@@ -388,7 +389,7 @@ impl SourceDiagnostic {
 
     /// Adds a single tracepoint to the diagnostic.
     pub fn with_tracepoint(mut self, tracepoint: Tracepoint, span: Span) -> Self {
-        self.trace.push(Spanned::new(tracepoint, span));
+        self.trace.push(Spanned::new(tracepoint, span.into()));
         self
     }
 }
@@ -436,6 +437,8 @@ pub enum Tracepoint {
     Import(EcoString),
     /// A module include.
     Include(EcoString),
+    /// Data-loading related error.
+    Load(EcoString),
 }
 
 impl Display for Tracepoint {
@@ -446,6 +449,7 @@ impl Display for Tracepoint {
             Tracepoint::Show(name) => write!(f, "while showing {name} element"),
             Tracepoint::Import(name) => write!(f, "while importing `{name}`"),
             Tracepoint::Include(name) => write!(f, "while including `{name}`"),
+            Tracepoint::Load(msg) => write!(f, "while loading: {msg}"),
         }
     }
 }
@@ -475,7 +479,7 @@ impl<T> Trace<T> for SourceResult<T> {
                     continue;
                 }
 
-                error.trace.push(Spanned::new(make_point(), span));
+                error.trace.push(Spanned::new(make_point(), span.into()));
             }
             errors
         })
@@ -752,6 +756,8 @@ pub struct LoadError {
     text_pos: Option<ReportTextPos>,
     /// Must contain a message formatted like this: `"failed to do thing (cause)"`.
     message: EcoString,
+    /// A nested error that is the cause of this error.
+    cause: Option<SourceDiagnostic>,
 }
 
 impl LoadError {
@@ -765,6 +771,7 @@ impl LoadError {
         Self {
             text_pos: Some(pos.into()),
             message: eco_format!("{message} ({error})"),
+            cause: None,
         }
     }
 
@@ -778,7 +785,14 @@ impl LoadError {
         Self {
             text_pos: None,
             message: eco_format!("{message} ({error})"),
+            cause: None,
         }
+    }
+
+    /// Add the `cause` of this error.
+    pub fn with_cause(mut self, cause: SourceDiagnostic) -> Self {
+        self.cause = Some(cause);
+        self
     }
 }
 
@@ -811,11 +825,20 @@ where
     type Output = SourceDiagnostic;
 
     fn within(self, loaded: &Loaded) -> Self::Output {
-        let LoadError { text_pos: pos, message } = self.into();
-        if let Some(pos) = pos {
+        let LoadError { text_pos, message, cause } = self.into();
+
+        let (span, message) = if let Some(pos) = text_pos {
             load_err_in_text(loaded, pos, message)
         } else {
             load_err_in_binary(loaded, None, message)
+        };
+
+        match cause {
+            Some(mut cause) => {
+                cause.trace.push(Spanned::new(Tracepoint::Load(message), span));
+                cause
+            }
+            _ => SourceDiagnostic::error(span, message),
         }
     }
 }
@@ -837,7 +860,7 @@ fn load_err_in_text(
     loaded: &Loaded,
     pos: ReportTextPos,
     mut message: EcoString,
-) -> SourceDiagnostic {
+) -> (DiagSpan, EcoString) {
     // This also does UTF-8 validation. Only report an error in an external
     // file if it is human readable (valid UTF-8), otherwise fall back to
     // `load_err_in_binary`.
@@ -848,7 +871,7 @@ fn load_err_in_text(
         LoadSource::Path(file_id) => {
             if let Some(range) = pos.range(&lines) {
                 let span = DiagSpan::from_range(file_id, range);
-                return SourceDiagnostic::error(span, message);
+                return (span, message);
             }
 
             // Either `ReportPos::None` was provided, or resolving the range
@@ -860,7 +883,7 @@ fn load_err_in_text(
                 let (line, col) = pair.numbers();
                 write!(&mut message, " at {line}:{col})").ok();
             }
-            SourceDiagnostic::error(span, message)
+            (span, message)
         }
         LoadSource::Bytes => {
             if let Some(pair) = pos.line_col(&lines) {
@@ -868,7 +891,7 @@ fn load_err_in_text(
                 let (line, col) = pair.numbers();
                 write!(&mut message, " at {line}:{col})").ok();
             }
-            SourceDiagnostic::error(loaded.source.span, message)
+            (loaded.source.span.into(), message)
         }
     }
 }
@@ -878,7 +901,7 @@ fn load_err_in_binary(
     loaded: &Loaded,
     pos: Option<ReportTextPos>,
     mut message: EcoString,
-) -> SourceDiagnostic {
+) -> (DiagSpan, EcoString) {
     let line_col = pos
         .and_then(|pos| pos.try_line_col(&loaded.data))
         .map(|p| p.numbers());
@@ -910,7 +933,7 @@ fn load_err_in_binary(
             }
         }
     }
-    SourceDiagnostic::error(loaded.source.span, message)
+    (loaded.source.span.into(), message)
 }
 
 /// A position in a text document at which an error was reported.
@@ -1040,25 +1063,21 @@ impl LineCol {
 /// Format a user-facing error message for an XML-like file format.
 pub fn format_xml_like_error(format: &str, error: roxmltree::Error) -> LoadError {
     let pos = LineCol::one_based(error.pos().row as usize, error.pos().col as usize);
-    let message = match error {
+    let error = typst_utils::display(|f| match error {
         roxmltree::Error::UnexpectedCloseTag(expected, actual, _) => {
-            eco_format!(
-                "failed to parse {format} (found closing tag '{actual}' instead of '{expected}')"
-            )
+            write!(f, "found closing tag `{actual}` instead of `{expected}`")
         }
         roxmltree::Error::UnknownEntityReference(entity, _) => {
-            eco_format!("failed to parse {format} (unknown entity '{entity}')")
+            write!(f, "unknown entity `{entity}`")
         }
         roxmltree::Error::DuplicatedAttribute(attr, _) => {
-            eco_format!("failed to parse {format} (duplicate attribute '{attr}')")
+            write!(f, "duplicate attribute `{attr}`")
         }
-        roxmltree::Error::NoRootNode => {
-            eco_format!("failed to parse {format} (missing root node)")
-        }
-        err => eco_format!("failed to parse {format} ({err})"),
-    };
+        roxmltree::Error::NoRootNode => write!(f, "missing root node"),
+        err => write!(f, "{err}"),
+    });
 
-    LoadError { text_pos: Some(pos.into()), message }
+    LoadError::text(pos, format_args!("failed to load {format}"), error)
 }
 
 /// Asserts a condition, generating an internal compiler error with the provided
