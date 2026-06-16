@@ -28,7 +28,7 @@ pub struct TableCtx {
     pub table_id: TableId,
     pub elem: Packed<TableElem>,
     row_kinds: Vec<TableCellKind>,
-    cells: GridCells<TableCellData>,
+    pub cells: GridCells<TableCellData>,
     border_thickness: Option<f32>,
     border_color: Option<NaiveRgbColor>,
 }

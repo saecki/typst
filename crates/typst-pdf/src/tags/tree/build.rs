@@ -15,7 +15,7 @@
 use std::num::NonZeroU16;
 use std::ops::ControlFlow;
 
-use ecow::EcoVec;
+use ecow::{EcoVec, eco_format};
 use krilla::tagging::{ArtifactType, ListNumbering, Tag, TagKind};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -26,6 +26,7 @@ use typst_library::diag::{
 };
 use typst_library::foundations::{Content, ContextElem};
 use typst_library::introspection::Location;
+use typst_library::layout::resolve::ResolvableCell;
 use typst_library::layout::{
     Frame, FrameItem, FrameParent, GridCell, GridElem, GroupItem, HideElem, Inherit,
     PlaceElem, RepeatElem,
@@ -180,6 +181,7 @@ struct StackEntry {
 pub fn build(document: &PagedDocument, options: &PdfOptions) -> SourceResult<Tree> {
     let mut tree = TreeBuilder::new(document, options);
     for page in document.pages() {
+        eprintln!("=== PAGE ===\n");
         visit_frame(&mut tree, &page.frame)?;
     }
 
@@ -199,7 +201,8 @@ pub fn build(document: &PagedDocument, options: &PdfOptions) -> SourceResult<Tre
     #[expect(clippy::iter_over_hash_type)]
     for (loc, children) in &tree.logical_children {
         let located = (tree.groups.by_loc(loc))
-            .expect_internal("parent group")
+            .expect_internal("missing parent group")
+            .map_err(|err| err.with_hint(eco_format!("loc: {loc:?}")))
             .at(Span::detached())?;
 
         if let Some(a11y) = options.standards.config.validators().accessibility()
@@ -242,18 +245,31 @@ fn visit_frame(tree: &mut TreeBuilder, frame: &Frame) -> SourceResult<()> {
     for (_, item) in frame.items() {
         match item {
             FrameItem::Group(group) => visit_group_frame(tree, group)?,
-            FrameItem::Tag(typst_library::introspection::Tag::Start(elem, flags)) => {
+            FrameItem::Tag(
+                tag @ typst_library::introspection::Tag::Start(elem, flags),
+            ) => {
+                eprintln!("START TAG: {:?}", tag.location());
                 if flags.tagged {
                     visit_start_tag(tree, elem);
                 }
             }
-            FrameItem::Tag(typst_library::introspection::Tag::End(loc, _, flags)) => {
+            FrameItem::Tag(
+                tag @ typst_library::introspection::Tag::End(loc, _, flags),
+            ) => {
+                eprintln!("END TAG: {:?}", tag.location());
                 if flags.tagged {
                     visit_end_tag(tree, *loc)?;
                 }
             }
-            FrameItem::Text(_) => (),
-            FrameItem::Shape(..) => (),
+            FrameItem::Text(t) => eprintln!("  TEXT: {:?}", t.text),
+            FrameItem::Shape(s, _) => eprintln!(
+                "  SHAPE: {}",
+                match s.geometry {
+                    typst_library::visualize::Geometry::Line(_) => "line",
+                    typst_library::visualize::Geometry::Rect(_) => "rect",
+                    typst_library::visualize::Geometry::Curve(_) => "curve",
+                }
+            ),
             FrameItem::Image(..) => (),
             FrameItem::Link(..) => (),
         }
@@ -276,6 +292,8 @@ fn visit_group_frame(tree: &mut TreeBuilder, group: &GroupItem) -> SourceResult<
         return visit_frame(tree, &group.frame);
     };
 
+    eprintln!(">>> {parent:?}");
+
     // Push the logical child.
     let prev = tree.current();
     let stack_idx = tree.stack.len();
@@ -288,6 +306,8 @@ fn visit_group_frame(tree: &mut TreeBuilder, group: &GroupItem) -> SourceResult<
     // Pop logical child.
     pop_logical_child(tree, parent, stack_idx);
     tree.progressions.push(prev);
+
+    eprintln!("<<< {parent:?}");
 
     Ok(())
 }
@@ -324,11 +344,13 @@ fn pop_logical_child(tree: &mut TreeBuilder, parent: FrameParent, stack_idx: usi
 }
 
 fn visit_start_tag(tree: &mut TreeBuilder, elem: &Content) {
+    eprintln!("{} loc {:?}", elem.elem().name(), elem.location());
     let group_id = progress_tree_start(tree, elem);
     tree.progressions.push(group_id);
 }
 
 fn visit_end_tag(tree: &mut TreeBuilder, loc: Location) -> SourceResult<()> {
+    eprintln!("end {loc:?}");
     let group = progress_tree_end(tree, loc)?;
     tree.progressions.push(group);
     Ok(())
@@ -419,6 +441,11 @@ fn progress_tree_start(tree: &mut TreeBuilder, elem: &Content) -> GroupId {
         let bbox = tree.ctx.new_bbox();
         push_group(tree, elem, GroupKind::Table(table_id, bbox, None))
     } else if let Some(cell) = elem.to_packed::<TableCell>() {
+        eprintln!(
+            "{} {}",
+            cell.x.val().unwrap_or_else(|| unreachable!()),
+            cell.y.val().unwrap_or_else(|| unreachable!())
+        );
         // Only repeated table headers and footer cells are laid out multiple
         // times. Mark duplicate headers as artifacts, since they have no
         // semantic meaning in the tag tree, which doesn't use page breaks for

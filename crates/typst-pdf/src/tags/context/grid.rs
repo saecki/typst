@@ -70,7 +70,7 @@ pub fn build_grid(tree: &mut Tree, grid_id: GridId) {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct GridCells<T> {
+pub struct GridCells<T> {
     width: usize,
     entries: Vec<GridEntry<T>>,
 }

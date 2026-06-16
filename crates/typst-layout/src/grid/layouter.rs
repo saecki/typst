@@ -1351,7 +1351,12 @@ impl<'a> GridLayouter<'a> {
                 && is_empty_frame(first)
                 && rest.iter().any(|frame| !is_empty_frame(frame))
             {
+                eprintln!("skip empty frame: {frames:?}");
                 return Ok(None);
+            }
+
+            if !can_skip {
+                eprintln!("frames not skipped: {frames:?}");
             }
 
             // Skip frames from previous regions if applicable.
@@ -1562,6 +1567,7 @@ impl<'a> GridLayouter<'a> {
                         pod,
                         self.row_state.is_being_repeated,
                     )?;
+                    eprintln!("multi row frames {fragment:?}");
                     for (output, frame) in outputs.iter_mut().zip(fragment) {
                         let mut pos = offset;
                         if self.is_rtl {

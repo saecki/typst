@@ -248,7 +248,9 @@ impl OutputType for Pdf {
         // Always run the default PDF export and PDF/UA-1 export, to detect
         // crashes, since there are quite a few different code paths involved.
         // If another standard is specified in the test, run that as well.
+        eprintln!("--- DEFAULT ---\n");
         let default_pdf = generate_pdf(doc, &[]);
+        eprintln!("--- UA-1 ---\n");
         let ua1_pdf = generate_pdf(doc, &[PdfStandard::Ua_1]);
         match test.attrs.pdf_standard.as_slice() {
             &[] => default_pdf,

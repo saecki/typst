@@ -72,7 +72,7 @@ Some other text.
 
 Some other text.
 
---- issue-8487-missing-parent-broken-table-with-figure-auto-placment pdf ---
+--- issue-8487-missing-parent-broken-table-with-figure-auto-placment paged ---
 #set page(width: 120pt, height: 95pt, margin: 10pt)
 #rect(height: 20pt)
 #figure(placement: auto, rect(height: 50pt))

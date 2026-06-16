@@ -60,7 +60,15 @@ pub fn layout_cell(
         && let Some((first, remainder)) = frames.split_first_mut()
     {
         let flags = TagFlags { introspectable: true, tagged: true };
+        let info = elem.to_packed::<TableCell>().map(|cell| {
+            format!(
+                "x: {}, y: {}",
+                cell.x.get(StyleChain::default()).custom().unwrap(),
+                cell.y.get(StyleChain::default()).custom().unwrap(),
+            )
+        }).unwrap();
         if remainder.is_empty() {
+            eprintln!("CELL LOC: {loc:?} {info}");
             first.prepend(Point::zero(), FrameItem::Tag(Tag::Start(elem, flags)));
             first.push(Point::zero(), FrameItem::Tag(Tag::End(loc, key, flags)));
         } else {
@@ -71,7 +79,9 @@ pub fn layout_cell(
             // in the introspector, since logical children are currently
             // inserted immediately after the start tag of the parent element
             // preceding any content within the parent element's tags.
+            eprintln!("SPLIT CELL LOC: {loc:?} {info}");
             for frame in &mut frames {
+                eprintln!(" {:?}", frame);
                 frame.set_parent(FrameParent::new(loc, Inherit::Yes));
             }
             frames.first_mut().unwrap().prepend_multiple([

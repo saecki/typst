@@ -652,6 +652,7 @@ impl PlacedChild<'_> {
             })?;
 
             if self.float {
+                eprintln!("PLACE ELEM LOCATION: {:?}", self.elem.location().unwrap());
                 frame.set_parent(FrameParent::new(
                     self.elem.location().unwrap(),
                     Inherit::Yes,

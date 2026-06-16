@@ -51,6 +51,7 @@ pub fn convert(
     anchors: &[(Location, EcoString)],
     link_resolver: Option<Tracked<LateLinkResolver>>,
 ) -> SourceResult<Vec<u8>> {
+    eprintln!("\n=== TAGGING ===");
     let settings = SerializeSettings {
         compress_content_streams: !options.pretty,
         no_device_cs: true,
@@ -96,6 +97,7 @@ pub fn convert(
 
 fn convert_pages(gc: &mut GlobalContext, document: &mut Document) -> SourceResult<()> {
     for (i, typst_page) in gc.document.pages().iter().enumerate() {
+        eprintln!("\n=== PAGE ===\n");
         if gc.page_index_converter.pdf_page_index(i).is_none() {
             // Don't export this page.
             continue;
