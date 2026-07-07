@@ -71,3 +71,14 @@ Some other text.
 ]
 
 Some other text.
+
+--- issue-8487-missing-parent-broken-table-with-figure-auto-placment pdf ---
+#set page(width: 120pt, height: 95pt, margin: 10pt)
+#rect(height: 20pt)
+#figure(placement: auto, rect(height: 50pt))
+#table(
+  columns: 2,
+  [A], lorem(2),
+  [B], lorem(10),
+  [C], lorem(2),
+)
