@@ -7,7 +7,7 @@ $mat() dot
  mat(;) dot
  mat(1, 2) dot
  mat(1, 2;) \
- mat(1; 2) dot
+ mat(1; 2; 3) dot
  mat(1, 2; 3, 4) dot
  mat(1 + &2, 1/2; &3, 4)$
 
@@ -41,7 +41,7 @@ $ a + mat(delim: #none, 1, 2; 3, 4) + b $
   columns: 3,
   gutter: 10pt,
 
-  $ mat(1, 2, delim: "[") $,
+  $ mat(1, 3, delim: "[") $,
   $ mat(1, 2; delim: "[") $,
   $ mat(delim: "[", 1, 2) $,
 

@@ -7,6 +7,8 @@ const sidebarLinks = sidebarList.querySelectorAll("a")
 const testReports = []
 /** @type {ReportFileState[]} */
 const reportFiles = []
+/** @type {ImageDiffState} */
+const imageDiffs = []
 
 /**
  * @typedef TestReportState
@@ -19,6 +21,7 @@ const reportFiles = []
  * @property reportBody HTMLDivElement
  * @property reportSource HTMLDivElement
  * @property reportFileTabpanels {NodeListOf<HTMLElement>}
+ * @property imageDiffs {HTMLElement[]}
  */
 
 /**
@@ -34,6 +37,36 @@ const reportFiles = []
 
 /**
  * @typedef {"visual" | "text"} DiffMode
+ */
+
+/**
+ * @typedef ImageDiffState
+ * @type {object}
+ * @property imageModes {HTMLInputElement[]}
+ * @property imageAntialiasing {HTMLInputElement}
+ * @property imageZoom {HTMLInputElement}
+ * @property imageAlignXControl {HTMLElement}
+ * @property imageAlignY {HTMLInputElement[]}
+ * @property imageAlignX {HTMLInputElement[]}
+ * @property imageBlendControl {HTMLElement}
+ * @property imageBlend {HTMLInputElement}
+ * @property canvases {ImageDiffCanvas[]}
+ */
+
+
+/**
+ * @typedef ImageDiffCanvas
+ * @type {object}
+ * @property visible {bool} Whether the canvas is visible.
+ * @property imagesDecoded {bool} Whether the images have been decoded and their
+ *                                natural dimensions are known.
+ * @property dirty {bool} Whether the canvas should be (re-)drawn.
+ * @property imageCanvas {HTMLCanvasElement}
+ * @property images {HTMLImageElement[]}
+ */
+
+/**
+ * @typedef {"side-by-side" | "swipe" | "blend" | "difference"} ImageViewMode
  */
 
 let activeTestSources = 0
@@ -62,6 +95,7 @@ for (const report of document.getElementsByClassName("test-report")) {
     reportToggle,
     reportSourceToggle,
     reportSource,
+    imageDiffs: [],
   }
   testReports.push(state);
 
@@ -125,6 +159,100 @@ for (const report of document.getElementsByClassName("test-report")) {
       })
     }
     fileDiffTabChanged(state, currentFileDiffTab(state))
+  }
+
+  // TODO: Have one `image-controls` div for each test report that has an image
+  // diff. Reuse these controls for each image diff, so they're linked.
+  // - Store the `dirty` flag inside the state for each image diff
+  // - Also store the output type and apply the scale factor correction for SVG images (pt vs px)
+  for (const imageDiff of report.querySelectorAll(".image-diff")) {
+    const imageWrapper = imageDiff.querySelector(".image-diff-wrapper")
+    const imageCanvas = imageWrapper.querySelector(".image-canvas")
+    const images = imageCanvas.querySelectorAll("img")
+
+    const imageModes = imageDiff.querySelectorAll("input.image-view-mode")
+    const imageAntialiasing = imageDiff.querySelector("input.image-antialiasing")
+    const imageZoom = imageDiff.querySelector("input.image-zoom")
+    const imageZoomPlus = imageDiff.querySelector("button.image-zoom-plus")
+    const imageZoomMinus = imageDiff.querySelector("button.image-zoom-minus")
+    const imageAlignXControl = imageDiff.querySelector(".image-align-x-control")
+    const imageAlignX = imageAlignXControl.querySelectorAll(".image-align-x")
+    const imageAlignYControl = imageDiff.querySelector(".image-align-y-control")
+    const imageAlignY = imageAlignYControl.querySelectorAll(".image-align-y")
+    const imageBlendControl = imageDiff.querySelector(".image-blend-control")
+    const imageBlend = imageDiff.querySelector("input.image-blend")
+
+    /** @type {ImageDiffState} */
+    const imageState = {
+      visible: false,
+      imagesLoaded: false,
+      dirty: true,
+      imageCanvas,
+      images,
+      imageModes,
+      imageAntialiasing,
+      imageZoom,
+      imageAlignXControl,
+      imageAlignX,
+      imageAlignY,
+      imageBlendControl,
+      imageBlend,
+      linked: state.imageDiffs,
+    }
+    state.imageDiffs.push(imageState);
+    imageDiffs.push(imageState);
+
+    for (const imageMode of imageModes) {
+      imageMode.addEventListener("change", (e) => {
+        imageModeChanged(imageState, e.target.value);
+      });
+    }
+
+    imageAntialiasing.addEventListener("change", () => imageDiffChanged(imageState));
+
+    imageZoom.addEventListener("change", () => imageDiffChanged(imageState));
+    imageZoom.addEventListener("input", () => imageDiffChanged(imageState));
+
+    imageZoomMinus.addEventListener("click", () => {
+      imageZoom.stepDown()
+      imageDiffChanged(imageState)
+    });
+    imageZoomPlus.addEventListener("click", () => {
+      imageZoom.stepUp()
+      imageDiffChanged(imageState)
+    });
+
+    for (const align of imageAlignX) {
+      align.addEventListener("change", () => imageDiffChanged(imageState));
+    }
+    for (const align of imageAlignY) {
+      align.addEventListener("change", () => imageDiffChanged(imageState));
+    }
+
+    imageBlend.addEventListener("change", () => imageDiffChanged(imageState));
+    imageBlend.addEventListener("input", () => imageDiffChanged(imageState));
+
+    // Initially enable/disable the image controls.
+    disableImageControls(imageState, currentImageMode(imageState));
+
+    // Issue a lazy canvas redaw when the images have been decoded.
+    let numDecoded = 0;
+    for (const img of images) {
+      // Ignore invalid images.
+      img.decode().catch(() => {}).then(() => {
+        numDecoded += 1;
+        if (numDecoded == images.length) {
+          imageState.imagesDecoded = true;
+          redrawImageDiff(imageState);
+        }
+      })
+    }
+
+    // Issue a lazy canvas redaw if the images become visible on screen.
+    onViewportIntersectionChanged(imageWrapper, (visible) => {
+      imageState.visible = visible;
+      redrawImageDiff(imageState);
+    });
   }
 }
 
@@ -297,120 +425,6 @@ function changeGlobalSourceVisibility(visible) {
   activeTestSources = visible ? testReports.length : 0;
 }
 
-/** @type {ImageDiffState} */
-const imageDiffs = []
-
-/**
- * @typedef ImageDiffState
- * @type {object}
- * @property visible {bool} Whether the canvas is visible.
- * @property imagesDecoded {bool} Whether the images have been decoded and their
- *                                natural dimensions are known.
- * @property dirty {bool} Whether the canvas should be (re-)drawn.
- * @property imageCanvas {HTMLCanvasElement}
- * @property images {HTMLImageElement[]}
- * @property imageModes {HTMLInputElement[]}
- * @property imageAntialiasing {HTMLInputElement}
- * @property imageZoom {HTMLInputElement}
- * @property imageAlignXControl {HTMLElement}
- * @property imageAlignY {HTMLInputElement[]}
- * @property imageAlignX {HTMLInputElement[]}
- * @property imageBlendControl {HTMLElement}
- * @property imageBlend {HTMLInputElement}
- */
-
-/**
- * @typedef {"side-by-side" | "swipe" | "blend" | "difference"} ImageViewMode
- */
-
-for (const imageDiff of document.getElementsByClassName("image-diff")) {
-  const imageWrapper = imageDiff.querySelector(".image-diff-wrapper")
-  const imageCanvas = imageWrapper.querySelector(".image-canvas")
-  const images = imageCanvas.querySelectorAll("img")
-
-  const imageModes = imageDiff.querySelectorAll("input.image-view-mode")
-  const imageAntialiasing = imageDiff.querySelector("input.image-antialiasing")
-  const imageZoom = imageDiff.querySelector("input.image-zoom")
-  const imageZoomPlus = imageDiff.querySelector("button.image-zoom-plus")
-  const imageZoomMinus = imageDiff.querySelector("button.image-zoom-minus")
-  const imageAlignXControl = imageDiff.querySelector(".image-align-x-control")
-  const imageAlignX = imageAlignXControl.querySelectorAll(".image-align-x")
-  const imageAlignYControl = imageDiff.querySelector(".image-align-y-control")
-  const imageAlignY = imageAlignYControl.querySelectorAll(".image-align-y")
-  const imageBlendControl = imageDiff.querySelector(".image-blend-control")
-  const imageBlend = imageDiff.querySelector("input.image-blend")
-
-  /** @type {ImageDiffState} */
-  const state = {
-    visible: false,
-    imagesLoaded: false,
-    dirty: true,
-    imageCanvas,
-    images,
-    imageModes,
-    imageAntialiasing,
-    imageZoom,
-    imageAlignXControl,
-    imageAlignX,
-    imageAlignY,
-    imageBlendControl,
-    imageBlend,
-  }
-  imageDiffs.push(state);
-
-  for (const imageMode of imageModes) {
-    imageMode.addEventListener("change", (e) => {
-      imageModeChanged(state, e.target.value);
-    });
-  }
-
-  imageAntialiasing.addEventListener("change", () => imageDiffChanged(state));
-
-  imageZoom.addEventListener("change", () => imageDiffChanged(state));
-  imageZoom.addEventListener("input", () => imageDiffChanged(state));
-
-  imageZoomMinus.addEventListener("click", () => {
-    imageZoom.stepDown()
-    imageDiffChanged(state)
-  });
-  imageZoomPlus.addEventListener("click", () => {
-    imageZoom.stepUp()
-    imageDiffChanged(state)
-  });
-
-  for (const align of imageAlignX) {
-    align.addEventListener("change", () => imageDiffChanged(state));
-  }
-  for (const align of imageAlignY) {
-    align.addEventListener("change", () => imageDiffChanged(state));
-  }
-
-  imageBlend.addEventListener("change", () => imageDiffChanged(state));
-  imageBlend.addEventListener("input", () => imageDiffChanged(state));
-
-  // Initially enable/disable the image controls.
-  disableImageControls(state, currentImageMode(state));
-
-  // Issue a lazy canvas redaw when the images have been decoded.
-  let numDecoded = 0;
-  for (const img of images) {
-    // Ignore invalid images.
-    img.decode().catch(() => {}).then(() => {
-      numDecoded += 1;
-      if (numDecoded == images.length) {
-        state.imagesDecoded = true;
-        redrawImageDiff(state);
-      }
-    })
-  }
-
-  // Issue a lazy canvas redaw if the images become visible on screen.
-  onViewportIntersectionChanged(imageWrapper, (visible) => {
-    state.visible = visible;
-    redrawImageDiff(state);
-  });
-}
-
 /**
  * @param element {HTMLElement}
  * @param callback {(visible: bool) => void}
@@ -515,7 +529,11 @@ function redrawImageDiff(state) {
 
   state.dirty = false;
 
-  const scale = state.imageZoom.value
+  // HACK: Scale factor of HTML pt (`1/72 inch`) to px (`1/96 inch`).
+  // Since PNG images are rendered with 1 px/pt and PDFs converted
+  // to SVGs don't currently specify a unit thus default to px.
+  let factor = (state.output == "svg") ? (72.0 / 96.0) : 1.0;
+  const scale = factor * state.imageZoom.value
   const antialiased = state.imageAntialiasing.checked;
   const mode = currentImageMode(state)
   const alignX = currentImageAlignX(state);
@@ -707,6 +725,7 @@ function verticalAlignImage(img, size, align) {
 
 /**
  * @param state {ImageDiffState}
+ * @returns {ImageViewMode}
  */
 function currentImageMode(state) {
   for (const imageMode of state.imageModes) {

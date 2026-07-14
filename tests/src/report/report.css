@@ -224,6 +224,10 @@ h2.diff-container-header {
   }
 }
 
+.test-report-body {
+  position: relative;
+}
+
 .test-report-source {
   border-bottom: 1.25rem solid var(--layer-2);
 }
@@ -460,17 +464,27 @@ tr {
   align-items: center;
 }
 
+.image-controls {
+  position: absolute;
+  height: 100%;
+  width: 100%;
+
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+}
+
 /* Only show image controls on hover */
 .image-diff:not(:hover,:has(*:focus-visible)) {
-  > .image-controls,
-  > .image-mode-controls {
+  > .image-controls {
     /* Avoid flicker in some cases */
     transition: opacity 0.1s cubic-bezier(0.64, 0, 0.78, 0) 0.1s;
     opacity: 0;
   }
 }
 
-.image-controls {
+.image-controls-top {
   position: absolute;
   top: 0;
   width: 100%;
@@ -485,7 +499,7 @@ tr {
   z-index: 100;
 }
 
-.image-mode-controls {
+.image-controls-bottom {
   position: absolute;
   bottom: 0;
   width: 100%;

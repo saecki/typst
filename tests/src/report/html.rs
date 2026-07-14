@@ -509,6 +509,17 @@ fn test_reports(body: &mut HtmlElem, reports: &[TestReport]) {
                                         file_idx,
                                     );
                                 }
+
+                                // There is one set of image controls for the
+                                // image diffs of all outputs of a test report.
+                                let has_image_diff = test_report
+                                    .files
+                                    .iter()
+                                    .flat_map(|f| f.diffs.iter())
+                                    .any(Diff::is_image);
+                                if has_image_diff {
+                                    image_diff_controls(div, test_idx);
+                                }
                             });
                     });
             }
@@ -987,7 +998,7 @@ fn file_diff_tabpanel(
         .with(|div| match diff {
             Diff::Text(diff) => text_diff(div, diff),
             Diff::Image(diff) => {
-                image_diff(div, &test_report.name, report_file.output, diff, n);
+                image_diff(div, &test_report.name, report_file.output, diff);
             }
             Diff::Html(diff) => html_diff(div, diff),
         });
@@ -1072,8 +1083,32 @@ fn image_diff(
     name: &str,
     output: TestOutput,
     diff: &FileDiff<Image>,
-    n: usize,
 ) {
+    parent.div().class("image-diff").with(|div| {
+        let image = |parent: &mut HtmlElem<'_>, data_url: &str| {
+            parent
+                .img()
+                .src(data_url)
+                .alt(display!("The {output} image of `{name}` test"));
+        };
+
+        div.canvas().class("image-canvas").with(|canvas| {
+            let data_url = (diff.left())
+                .and_then(|old| old.data())
+                .map(|img| img.data_url.as_str())
+                .unwrap_or("");
+            image(canvas, data_url);
+
+            let data_url = (diff.right())
+                .and_then(|res| res.as_ref().ok())
+                .map(|img| img.data_url.as_str())
+                .unwrap_or("");
+            image(canvas, data_url);
+        });
+    });
+}
+
+fn image_diff_controls(parent: &mut HtmlElem, n: usize) {
     let radio_icon_button = |parent: &mut HtmlElem, name, value, title, icon, checked| {
         parent.label().class("icon-toggle-button").with(|label| {
             label
@@ -1148,8 +1183,8 @@ fn image_diff(
         });
     };
 
-    parent.div().class("image-diff").with(|div| {
-        div.div().class("image-controls").with(|div| {
+    parent.div().class("image-controls").with(|div| {
+        div.div().class("image-controls-top").with(|div| {
             div.fieldset().class("control-group").with(|fieldset| {
                 radio_icon_button(
                     fieldset,
@@ -1199,44 +1234,17 @@ fn image_diff(
                 icon_button(fieldset, "image-zoom-minus", "Zoom out", icons::MINUS);
                 icon_button(fieldset, "image-zoom-plus", "Zoom in", icons::PLUS);
 
-                // HACK: Scale factor of HTML pt (`1/72 inch`) to px (`1/96 inch`).
-                // Since PNG images are rendered with 1 px/pt and PDFs converted
-                // to SVGs don't currently specify a unit thus default to px.
-                let factor = if output == TestOutput::Svg { 72.0 / 96.0 } else { 1.0 };
                 slider(
                     fieldset,
                     "image-zoom",
                     "Zoom",
                     None,
-                    factor * SliderOpts { min: 0.5, max: 8.0, value: 2.0, step: 0.05 },
+                    SliderOpts { min: 0.5, max: 8.0, value: 2.0, step: 0.05 },
                 );
             });
         });
 
-        div.div().class("image-diff-wrapper").with(|div| {
-            let image = |parent: &mut HtmlElem<'_>, data_url: &str| {
-                parent
-                    .img()
-                    .src(data_url)
-                    .alt(display!("The {output} image of `{name}` test"));
-            };
-
-            div.canvas().class("image-canvas").with(|canvas| {
-                let data_url = (diff.left())
-                    .and_then(|old| old.data())
-                    .map(|img| img.data_url.as_str())
-                    .unwrap_or("");
-                image(canvas, data_url);
-
-                let data_url = (diff.right())
-                    .and_then(|res| res.as_ref().ok())
-                    .map(|img| img.data_url.as_str())
-                    .unwrap_or("");
-                image(canvas, data_url);
-            });
-        });
-
-        div.div().class("image-mode-controls").with(|div| {
+        div.div().class("image-controls-bottom").with(|div| {
             div.fieldset().class("control-group image-align-y-control").with(
                 |fieldset| {
                     radio_icon_button(

@@ -63,6 +63,10 @@ impl Diff {
             Diff::Image(_) | Diff::Html(_) => DiffMode::Visual,
         }
     }
+
+    pub fn is_image(&self) -> bool {
+        matches!(self, Self::Image(..))
+    }
 }
 
 #[derive(Copy, Clone)]
