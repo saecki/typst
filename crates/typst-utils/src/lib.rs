@@ -13,6 +13,7 @@ mod pico;
 mod protected;
 mod round;
 mod scalar;
+mod write;
 #[path = "version.rs"]
 mod version_;
 
