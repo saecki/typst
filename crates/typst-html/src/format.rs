@@ -170,12 +170,14 @@ impl HtmlFormat {
 #[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
 pub struct HtmlFormatOptions<F: Fields = Complete> {
     pub pretty: F::Value<HtmlFormat, { HtmlFormat::pretty.index() }>,
+    pub styles: F::Value<HtmlFormat, { HtmlFormat::styles.index() }>,
 }
 
 impl Populate for HtmlFormatOptions {
     fn populate(&mut self, styles: Spanned<StyleChain>) {
         // VOLATILE: This must be updated when adding more fields.
         self.pretty.populate(styles);
+        self.styles.populate(styles);
     }
 }
 
@@ -184,6 +186,7 @@ impl HtmlFormatOptions<Partial> {
     pub fn resolve(&self, default: &HtmlFormatOptions) -> HtmlFormatOptions {
         HtmlFormatOptions {
             pretty: Partial::resolve(self.pretty, default.pretty),
+            styles: Partial::resolve(self.styles, default.styles),
         }
     }
 }

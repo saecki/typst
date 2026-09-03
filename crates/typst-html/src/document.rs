@@ -1,5 +1,5 @@
 use comemo::{Track, Tracked, TrackedMut};
-use ecow::{EcoVec, eco_vec};
+use ecow::{EcoVec, eco_format, eco_vec};
 use typst_library::diag::{SourceResult, bail, error};
 use typst_library::engine::{Engine, Route, Sink, Traced};
 use typst_library::format::DocumentFormatOptions;
@@ -15,8 +15,9 @@ use typst_syntax::{Span, Spanned};
 use typst_utils::{LazyHash, Protected};
 
 use crate::convert::{ConversionLevel, Whitespace};
+use crate::format::{HtmlStyleLocation, HtmlStyles};
 use crate::mathml::EQUATION_CSS_STYLES;
-use crate::{HtmlDocument, HtmlElement, HtmlNode, attr, css, tag};
+use crate::{HtmlDocument, HtmlElement, HtmlFormat, HtmlNode, attr, css, tag};
 
 /// Produce an HTML document from content.
 ///
@@ -188,9 +189,12 @@ fn html_document_common(
         StyleChain::new(&Styles::root(&children, styles)),
     )?;
 
-    // Since `finalize_dom` might have inserted more DOM nodes that have styles,
-    // the styles must be resolved last.
-    css::resolve_inline_styles(output.root_mut());
+    // Generate styles after `finalize_dom`, since it might have inserted more
+    // DOM nodes that have styles.
+    let html_options = options.get::<HtmlFormat>();
+    if let Some(styles) = html_options.styles.v {
+        generate_styles(output.root_mut(), styles.loation);
+    }
 
     let has_equations = !engine
         .introspect(QueryIntrospection(EquationElem::ELEM.select(), Span::detached()))
@@ -362,6 +366,35 @@ fn head_element(info: &DocumentInfo) -> HtmlElement {
     }
 
     HtmlElement::new(tag::head).with_children(children)
+}
+
+fn generate_styles(root: &mut HtmlElement, styles: HtmlStyles) {
+    match styles.location {
+        HtmlStyleLocation::Inline => css::resolve_inline_styles(root),
+        HtmlStyleLocation::Embedded => {
+            let stylesheet = css::resolve_stylesheet(root);
+            if !stylesheet.is_empty() {
+                let head =
+                    root.children.make_mut().iter_mut().find_map(|node| match node {
+                        HtmlNode::Element(elem) if elem.tag == tag::head => Some(elem),
+                        _ => None,
+                    });
+
+                // TODO: this becomes an error when html fragments are supported
+                let head = head.expect("head to be present in document output");
+
+                head.children.push(
+                    HtmlElement::new(tag::style)
+                        .with_children(eco_vec![HtmlNode::Text(
+                            eco_format!("{}", stylesheet.display()),
+                            Span::detached(),
+                        )])
+                        .into(),
+                );
+            }
+        }
+        HtmlStyleLocation::External => todo!("emit bundle asset"),
+    }
 }
 
 /// Fails with an error if there are footnotes.

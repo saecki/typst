@@ -3307,6 +3307,7 @@ dependencies = [
  "bumpalo",
  "comemo",
  "ecow",
+ "indexmap",
  "palette",
  "rustc-hash",
  "time",
