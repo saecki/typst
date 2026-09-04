@@ -1,5 +1,7 @@
-use crate::ResolvedPicoStr;
+//! This modules provides the primitives for building fool-proof mixed HTML,
+//! XHTML, and XML writers.
 
+/// A HTML and XML writer.
 pub struct Writer<T> {
     /// The current writing mode.
     mode: Mode,
@@ -15,25 +17,52 @@ pub struct Writer<T> {
 
 impl<T: Buffer> Writer<T> {
     /// Create a new writer with a specific mode.
-    pub fn new(mode: Mode) -> Self {
-        let mut buf = T::default();
+    pub fn new(mode: Mode, buf: T) -> Self {
         Self {
             mode,
             pretty: true,
-            buf: T::default(),
+            buf,
             state: State::Elem,
             depth: 0,
         }
     }
 
     /// Create a new HTML writer.
-    pub fn html() -> Self {
-        Self::new(Mode::Html)
+    pub fn html() -> Self
+    where
+        T: Default,
+    {
+        Self::new(Mode::Html, T::default())
     }
 
     /// Create a new XML writer.
-    pub fn xml() -> Self {
-        Self::new(Mode::Xml)
+    pub fn xml() -> Self
+    where
+        T: Default,
+    {
+        Self::new(Mode::Xml, T::default())
+    }
+
+    /// Set the pretty flag in builder style.
+    pub fn with_pretty(mut self, pretty: bool) -> Self {
+        self.pretty = pretty;
+        self
+    }
+
+    /// Set the pretty flag.
+    pub fn set_pretty(&mut self, pretty: bool) {
+        self.pretty = pretty;
+    }
+
+    /// Set the pretty flag in builder style.
+    pub fn with_mode(mut self, mode: Mode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    /// Set the mode flag.
+    pub fn set_mode(&mut self, mode: Mode) {
+        self.mode = mode;
     }
 
     // TODO: Provide an API for switching modes.
@@ -50,13 +79,14 @@ impl<T: Buffer> Writer<T> {
     }
 }
 
+/// The writing mode.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum Mode {
     Html,
     Xml,
 }
 
-pub trait Buffer: Sized + Default {
+pub trait Buffer: Sized {
     /// Write a string. When writing to an attribute value, XML metacharacters
     /// are escaped.
     fn push_str(&mut self, value: &str);
@@ -65,6 +95,12 @@ pub trait Buffer: Sized + Default {
     /// metacharacters are escaped.
     fn push_char(&mut self, value: char) {
         self.push_str(value.encode_utf8(&mut [0; 4]));
+    }
+}
+
+impl<T: Buffer> Buffer for &mut T {
+    fn push_str(&mut self, value: &str) {
+        T::push_str(self, value);
     }
 }
 
@@ -147,7 +183,29 @@ impl<T: Buffer> Writer<T> {
 
         self.depth -= 1;
         self.state = State::Elem;
+
+        self.indent();
     }
+
+    // TODO: Add trait for
+    pub fn attr(&mut self, name: &str, value: impl BufferDisplay) {
+        assert_eq!(self.state, State::Attr);
+
+        self.buf.push_str(" ");
+        self.buf.push_str(name);
+        self.buf.push_str("=\"");
+        match self.mode {
+            Mode::Html => {
+                value.fmt(Escaped(buf, html::is_valid_in_attr_name));
+            }
+            Mode::Xml => {
+                value.fmt(Escaped(buf, xml::is_valid_in_attr_name));
+            }
+        }
+        self.buf.push_str("\"");
+    }
+
+    pub fn empty_attr(&mut self, name: &str) {}
 
     fn indent(&mut self) {
         if self.pretty {
@@ -159,6 +217,22 @@ impl<T: Buffer> Writer<T> {
     }
 }
 
+trait BufferDisplay {
+    fn fmt(&self, buf: &mut impl Buffer);
+}
+
+struct Escaped<B, E>(B, E);
+
+impl<B, E> Buffer for Escaped<B, E>
+where
+    B: Buffer,
+    E: Fn(char) -> bool + Copy,
+{
+    fn push_str(&mut self, value: &str) {
+        write_escaped(&self.0, value, self.1)?;
+    }
+}
+
 /// Append `value` to a buffer, escaping the XML metacharacters that
 /// `xmlwriter`'s raw attribute writer leaves untouched (it only escapes the
 /// quotation mark). Otherwise a value such as a link URL containing `&` or `<`
@@ -166,50 +240,73 @@ impl<T: Buffer> Writer<T> {
 fn write_escaped(
     buf: &mut impl Buffer,
     mut value: &str,
-    escape: impl Fn(u8) -> Option<&'static str>,
-) {
-    for (i, b) in value.bytes().enumerate() {
-        if let Some(escaped) = escape(b) {
-            buf.push_str(&value[..i]);
-            buf.push_str(escaped);
-        }
+    valid: impl Fn(char) -> bool,
+) -> Result<(), Error> {
+    while let Some((i, c)) = value.char_indices().find(|(_, c)| !valid(*c)) {
+        buf.push_str(&value[..i]);
+        escape(buf, c)?;
 
-        // Escaped characters are always one byte.
-        value = &value[i + 1..];
+        value = &value[i + c.len_utf8()..];
     }
+
     if !value.is_empty() {
         buf.push_str(value);
     }
+
+    Ok(())
 }
 
-fn escape_in_attr(byte: u8) -> Option<&'static str> {
-    match byte {
-        b'"' => Some("&quot"),
-        b'&' => Some("&amp;"),
-        b'<' => Some("&lt;"),
-        _ => None,
+/// Escape a character.
+fn escape(buf: &mut impl Buffer, c: char) -> Result<(), Error> {
+    // See <https://html.spec.whatwg.org/multipage/syntax.html#syntax-charref>
+    match c {
+        // Write common named character references.
+        '&' => buf.push_str("&amp;"),
+        '<' => buf.push_str("&lt;"),
+        '>' => buf.push_str("&gt;"),
+        '"' => buf.push_str("&quot;"),
+        '\'' => buf.push_str("&apos;"),
+
+        // Write a hexadeciaml numeric character reference.
+        _ if html::is_w3c_text_char(c) && c != '\r' => {
+            fn hex_digit(nibble: u8) -> u8 {
+                match nibble {
+                    0..10 => b'0' + nibble,
+                    _ => b'a' + (nibble - 10),
+                }
+            }
+
+            let digits = u32::to_be_bytes(c.into())
+                .map(|byte| [hex_digit(byte >> 4), hex_digit(byte & 0x0F)]);
+            // The digits are all valid ASCII hex characters.
+            let str = std::str::from_utf8(digits.as_flattened()).unwrap();
+
+            buf.push_str("&#x");
+            buf.push_str(str.trim_start_matches('0'));
+            buf.push_str(";");
+        }
+        _ => return Err(Error::Unencodable(c)),
     }
+
+    Ok(())
 }
 
-fn escape_in_text(byte: u8) -> Option<&'static str> {
-    match byte {
-        b'&' => Some("&amp;"),
-        b'<' => Some("&lt;"),
-        b'>' => Some("&gt;"),
-        _ => None,
-    }
+pub enum Error {
+    InvalidInTagName(char),
+    InvalidInAttrName(char),
+    Unencodable(char),
 }
 
-mod html {
+pub mod html {
     //! Defines syntactical properties of HTML tags, attributes, and text.
 
-    /// Check whether a character is in a tag name.
+    /// Check whether a character is valid in a tag name.
     pub const fn is_valid_in_tag_name(c: char) -> bool {
         c.is_ascii_alphanumeric() || c == '-'
     }
 
     /// Check whether a character is valid in an attribute name.
-    pub const fn is_valid_in_attribute_name(c: char) -> bool {
+    pub const fn is_valid_in_attr_name(c: char) -> bool {
         match c {
             // These are forbidden.
             '\0' | ' ' | '"' | '\'' | '>' | '/' | '=' => false,
@@ -225,7 +322,7 @@ mod html {
     /// escaping.
     ///
     /// See <https://html.spec.whatwg.org/multipage/syntax.html#attributes-2>
-    pub const fn is_valid_in_attribute_value(c: char) -> bool {
+    pub const fn is_valid_in_attr_value(c: char) -> bool {
         match c {
             // Ampersands are sometimes legal (i.e. when they are not _ambiguous
             // ampersands_) but it is not worth the trouble to check for that.
@@ -240,7 +337,7 @@ mod html {
 
     /// Check whether a character can be an used in normal text without
     /// escaping.
-    pub const fn is_valid_in_normal_element_text(c: char) -> bool {
+    pub const fn is_valid_in_normal_elem_text(c: char) -> bool {
         match c {
             // Ampersands are sometimes legal (i.e. when they are not _ambiguous
             // ampersands_) but it is not worth the trouble to check for that.
@@ -281,5 +378,48 @@ mod html {
             '\u{7f}'..='\u{9f}' => true,
             _ => false,
         }
+    }
+}
+
+pub mod xml {
+    //! Defines syntactical properties of XML tags, attributes, text, and CDATA.
+
+    /// Check whether a character is valid in a tag name.
+    pub const fn is_valid_in_tag_name(c: char) -> bool {
+        c.is_ascii_alphanumeric() || c == '-'
+    }
+
+    /// Check whether a character is valid in an attribute name.
+    pub const fn is_valid_in_attr_name(c: char) -> bool {
+        todo!()
+    }
+
+    /// Check whether a character can be an used in an attribute value without
+    /// escaping.
+    ///
+    /// See <https://www.w3.org/TR/REC-xml/#NT-AttValue>
+    pub const fn is_valid_in_attr_value(c: char) -> bool {
+        match c {
+            // Ampersands are not allowed in attribute values.
+            '&' => false,
+            // Less-than signs are not allowed in attribute values.
+            '<' => false,
+            // Quotation marks are not allowed in double-quote-delimited
+            // attribute values.
+            '"' => false,
+            // Everything else is allowed.
+            _ => true,
+        }
+    }
+
+    /// Check whether a character can be an used in normal text without
+    /// escaping.
+    pub const fn is_valid_in_normal_elem_text(c: char) -> bool {
+        todo!()
+    }
+
+    /// Check whether a character can be an used in cdata without escaping.
+    pub const fn is_valid_in_cdata(c: char) -> bool {
+        todo!()
     }
 }
