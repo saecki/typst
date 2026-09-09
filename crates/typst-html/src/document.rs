@@ -1,5 +1,5 @@
 use comemo::{Track, Tracked, TrackedMut};
-use ecow::{EcoVec, eco_format, eco_vec};
+use ecow::{EcoString, EcoVec, eco_format, eco_vec};
 use typst_library::diag::{SourceResult, bail, error};
 use typst_library::engine::{Engine, Route, Sink, Traced};
 use typst_library::format::DocumentFormatOptions;
@@ -192,34 +192,11 @@ fn html_document_common(
     // Generate styles after `finalize_dom`, since it might have inserted more
     // DOM nodes that have styles.
     let html_options = options.get::<HtmlFormat>();
-    if let Some(styles) = html_options.styles.v {
-        generate_styles(output.root_mut(), styles.loation);
-    }
-
     let has_equations = !engine
         .introspect(QueryIntrospection(EquationElem::ELEM.select(), Span::detached()))
         .is_empty();
-
-    if has_equations {
-        let root = output.root_mut();
-
-        let head = root.children.make_mut().iter_mut().find_map(|node| match node {
-            HtmlNode::Element(elem) if elem.tag == tag::head => Some(elem),
-            _ => None,
-        });
-
-        // TODO: this becomes an error when html fragments are supported
-        let head = head.expect("head to be present in document output");
-
-        head.children.push(
-            HtmlElement::new(tag::style)
-                .with_children(eco_vec![HtmlNode::Text(
-                    EQUATION_CSS_STYLES.clone(),
-                    Span::detached(),
-                )])
-                .into(),
-        );
-    }
+    let math_stylesheet = has_equations.then_some(&**EQUATION_CSS_STYLES);
+    generate_styles(output.root_mut(), html_options.styles.v, math_stylesheet);
 
     Ok(HtmlDocument::new(output, info, options))
 }
@@ -368,7 +345,11 @@ fn head_element(info: &DocumentInfo) -> HtmlElement {
     HtmlElement::new(tag::head).with_children(children)
 }
 
-fn generate_styles(root: &mut HtmlElement, styles: HtmlStyles) {
+fn generate_styles(
+    root: &mut HtmlElement,
+    styles: Option<HtmlStyles>,
+    math_stylesheet: Option<&str>,
+) {
     match styles.location {
         HtmlStyleLocation::Inline => css::resolve_inline_styles(root),
         HtmlStyleLocation::Embedded => {
@@ -383,17 +364,23 @@ fn generate_styles(root: &mut HtmlElement, styles: HtmlStyles) {
                 // TODO: this becomes an error when html fragments are supported
                 let head = head.expect("head to be present in document output");
 
+                let mut stylesheet = eco_format!("{}", stylesheet.display());
+                if let Some(math) = math_stylesheet {
+                    stylesheet.push_str(math);
+                }
                 head.children.push(
                     HtmlElement::new(tag::style)
                         .with_children(eco_vec![HtmlNode::Text(
-                            eco_format!("{}", stylesheet.display()),
+                            stylesheet,
                             Span::detached(),
                         )])
                         .into(),
                 );
             }
         }
-        HtmlStyleLocation::External => todo!("emit bundle asset"),
+        HtmlStyleLocation::External => todo!(
+            "somehow try to do incremental stylesheet resolution respecting external styles"
+        ),
     }
 }
 

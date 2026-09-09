@@ -6,7 +6,7 @@ pub mod tag;
 
 mod charsets;
 mod convert;
-mod css;
+pub mod css;
 mod document;
 mod dom;
 mod encode;
