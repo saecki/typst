@@ -165,6 +165,40 @@
   )
 )
 
+--- curve-line-zero-length paged ---
+#let lines(length: 0pt) = ("butt", "round", "square").map(cap => curve(
+  stroke: stroke(thickness: 10pt, cap: cap, paint: red),
+  curve.move((0pt, 0pt)),
+  curve.line((0pt, length)),
+))
+
+#grid(
+  columns: 3 * (1fr,),
+  row-gutter: 20pt,
+  align: center,
+  ..lines(length: 0pt),
+  ..lines(length: 30pt),
+)
+
+--- curve-multiple-lines-zero-length paged ---
+#grid(
+  columns: 3 * (1fr,),
+  align: center,
+  ..("butt", "round", "square").map(cap => curve(
+    stroke: stroke(thickness: 10pt, cap: cap, paint: red),
+
+    curve.move((0pt, 0pt)),
+    curve.line((0pt, 0pt)),
+
+    curve.move((0pt, 30pt)),
+    curve.line((0pt, 30pt)),
+
+    curve.move((0pt, 60pt)),
+    curve.line((0pt, 80pt)),
+  ))
+)
+
+
 --- curve-infinite-length paged ---
 // Error: 2-67 cannot create curve with infinite size
 #curve(curve.move((0pt, 0pt)), curve.line((float.inf * 1pt, 0pt)))

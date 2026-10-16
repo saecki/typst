@@ -125,7 +125,7 @@ impl SvgPathBuilder {
         } else if pos.x != Abs::zero() {
             f.push_str("h ");
             f.push_num(pos.x.to_pt());
-        } else if pos.y != Abs::zero() {
+        } else {
             f.push_str("v ");
             f.push_num(pos.y.to_pt());
         }

@@ -36,7 +36,9 @@ pub fn render_shape(canvas: &mut sk::Pixmap, state: State, shape: &Shape) -> Opt
         Geometry::Curve(curve) => convert_curve(curve)?,
     };
 
-    if let Some(fill) = &shape.fill {
+    if let Some(fill) = &shape.fill
+        && !path.bounds().is_empty()
+    {
         let mut pixmap = None;
         let mut paint: sk::Paint =
             paint::to_sk_paint(fill, state, false, &mut pixmap, Some(shape), false);
@@ -57,8 +59,13 @@ pub fn render_shape(canvas: &mut sk::Pixmap, state: State, shape: &Shape) -> Opt
     {
         let width = thickness.to_f32();
 
-        // Don't draw zero-pt stroke.
-        if width > 0.0 {
+        // Don't draw zero-sized geometry. The only exception are degenerate
+        // paths (a signle point) with a round line cap.
+        let skippable = path.bounds().width() == 0.0
+            && path.bounds().height() == 0.0
+            && *cap != LineCap::Round;
+
+        if width > 0.0 && !skippable {
             let dash = dash.as_ref().and_then(to_sk_dash_pattern);
             let mut pixmap = None;
             let paint = paint::to_sk_paint(

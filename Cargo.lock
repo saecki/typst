@@ -3597,6 +3597,7 @@ dependencies = [
  "image",
  "indexmap",
  "itoa",
+ "kurbo",
  "rustc-hash",
  "ryu",
  "ttf-parser",
